@@ -34,14 +34,6 @@ export class Maze {
     const mid = Math.floor(cols / 2);
     this.walls[rows - 1][mid].S = false;
     this.walls[0][mid].N        = false;
-
-    // Pre-compute dead-end cells (exactly one open passage)
-    this.deadEnds = [];
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        if (this.openPassages(r, c).length === 1) this.deadEnds.push([r, c]);
-      }
-    }
   }
 
   // ── private ─────────────────────────────────────────────────────────────
@@ -91,33 +83,17 @@ export class Maze {
 
   // ── public ──────────────────────────────────────────────────────────────
 
-  /** Returns an array of open directions ('N','E','S','W') for cell (r,c). */
-  openPassages(r, c) {
-    const w = this.walls[r][c];
-    return ['N', 'E', 'S', 'W'].filter(d => !w[d]);
-  }
-
   /**
    * Draw the maze onto a CanvasRenderingContext2D.
-   * grayCells – optional Set of cell keys (r*cols+c) to shade as dead-end corridors.
-   * Gray fill is painted before walls so walls remain crisp on top.
+   * Only walls that are *standing* get drawn; shared edges are drawn once
+   * (we only draw N and W walls per cell, plus the outer S and E borders).
    */
-  draw(ctx, grayCells = null) {
+  draw(ctx) {
     const { cols, rows, cell } = this;
 
     // Background
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, cols * cell, rows * cell);
-
-    // Dead-end shading (before walls)
-    if (grayCells && grayCells.size > 0) {
-      ctx.fillStyle = 'rgba(168, 168, 185, 0.55)';
-      for (const k of grayCells) {
-        const r = Math.floor(k / cols);
-        const c = k % cols;
-        ctx.fillRect(c * cell, r * cell, cell, cell);
-      }
-    }
 
     ctx.strokeStyle = '#1a1a2e';
     ctx.lineWidth   = 1;
