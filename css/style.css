@@ -1,0 +1,185 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #0d0d1a;
+  --surface: #1a1a2e;
+  --accent:  #1565c0;
+  --text:    #e0e0e0;
+  --muted:   #7986cb;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .5rem;
+  padding: .5rem 0 .4rem;
+}
+
+h1 {
+  font-size: 1.2rem;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+/* ── Settings panel ──────────────────────────────────── */
+
+#settings {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: .4rem 1.6rem;
+  background: var(--surface);
+  padding: .55rem 1.2rem;
+  border-radius: 6px;
+  font-size: .78rem;
+  color: var(--muted);
+  width: 90vw;
+}
+
+.setting {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  cursor: default;
+}
+
+.setting-label {
+  min-width: 9ch;
+  text-align: right;
+}
+
+.setting-val {
+  font-variant-numeric: tabular-nums;
+  min-width: 3ch;
+  color: var(--text);
+  text-align: right;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100px;
+  height: 4px;
+  border-radius: 2px;
+  background: #2e3060;
+  outline: none;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  transition: background .15s;
+}
+input[type="range"]:hover::-webkit-slider-thumb { background: #1e88e5; }
+
+/* ── HUD ─────────────────────────────────────────────── */
+
+#hud {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 1.4rem;
+  font-size: .82rem;
+  color: var(--muted);
+}
+
+#timer {
+  font-variant-numeric: tabular-nums;
+  font-size: .95rem;
+  color: var(--text);
+  min-width: 5ch;
+  text-align: right;
+}
+
+#size-info {
+  font-variant-numeric: tabular-nums;
+  font-size: .78rem;
+  color: var(--muted);
+  opacity: .8;
+}
+
+/* ── Canvas wrapper ──────────────────────────────────── */
+
+#canvas-wrap {
+  /* Fills all remaining vertical space */
+  flex: 1;
+  min-height: 0;
+  width: 90vw;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--surface);
+  border-radius: 4px;
+  box-shadow: 0 0 24px rgba(21, 101, 192, .35);
+}
+
+#maze-canvas {
+  display: block;
+  image-rendering: pixelated;
+  /* dimensions are set via JS – no CSS size override */
+}
+
+/* ── Overlay (start / win) ───────────────────────────── */
+
+#overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(13, 13, 26, .82);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .8rem;
+  border-radius: 2px;
+}
+
+#overlay.hidden { display: none; }
+
+#overlay-msg {
+  font-size: .9rem;
+  color: var(--text);
+  text-align: center;
+}
+
+/* ── Button ──────────────────────────────────────────── */
+
+button {
+  padding: .4rem 1.1rem;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: .82rem;
+  cursor: pointer;
+  letter-spacing: .05em;
+  transition: filter .15s;
+}
+button:hover  { filter: brightness(1.2); }
+button:active { filter: brightness(.9); }
+
+#btn-solution[aria-pressed="true"] {
+  background: #b71c1c;
+  box-shadow: 0 0 8px rgba(229, 57, 53, .5);
+}
+
+/* ── Controls hint ───────────────────────────────────── */
+
+#hint {
+  flex-shrink: 0;
+  font-size: .7rem;
+  color: var(--muted);
+  opacity: .6;
+}

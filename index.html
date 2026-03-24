@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Labyrinth</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+
+  <h1>Labyrinth</h1>
+
+  <!-- Settings panel -->
+  <div id="settings">
+    <label class="setting">
+      <span class="setting-label">Spalten</span>
+      <input id="inp-cols" type="range" min="5" max="80" value="20" />
+      <span class="setting-val" id="val-cols">20</span>
+    </label>
+    <label class="setting">
+      <span class="setting-label">Zeilen</span>
+      <input id="inp-rows" type="range" min="5" max="80" value="20" />
+      <span class="setting-val" id="val-rows">20</span>
+    </label>
+    <label class="setting">
+      <span class="setting-label">Gangbreite&nbsp;(px)</span>
+      <input id="inp-cell" type="range" min="4" max="40" value="10" />
+      <span class="setting-val" id="val-cell">10</span>
+    </label>
+    <label class="setting">
+      <span class="setting-label">Sichtweite&nbsp;(px)</span>
+      <input id="inp-fog" type="range" min="15" max="400" value="80" />
+      <span class="setting-val" id="val-fog">80</span>
+    </label>
+    <label class="setting">
+      <span class="setting-label">Überblendung&nbsp;(px)</span>
+      <input id="inp-fade" type="range" min="0" max="150" value="40" />
+      <span class="setting-val" id="val-fade">40</span>
+    </label>
+  </div>
+
+  <!-- HUD -->
+  <div id="hud">
+    <span>Zeit</span>
+    <span id="timer">0.0 s</span>
+    <span id="size-info">200 × 200 px</span>
+    <button id="btn-new">Neues Labyrinth</button>
+    <button id="btn-solution" aria-pressed="false">Lösung zeigen</button>
+  </div>
+
+  <!-- Canvas -->
+  <div id="canvas-wrap">
+    <canvas id="maze-canvas"></canvas>
+
+    <div id="overlay">
+      <p id="overlay-msg">Finde den Ausgang!</p>
+      <button onclick="document.getElementById('btn-new').click()">Start</button>
+    </div>
+  </div>
+
+  <p id="hint">Steuerung: Pfeiltasten &nbsp;/&nbsp; WASD</p>
+
+  <script type="module" src="/js/game.js"></script>
+</body>
+</html>
