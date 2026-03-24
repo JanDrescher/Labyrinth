@@ -1,8 +1,8 @@
 # Labyrinth – Projektdokumentation
 
-**Stand:** 2026-03-24
+**Stand:** 2026-03-24 (abends)
 **Pfad:** `/home/admin/Labyrinth/`
-**Erreichbar unter:** `http://localhost:4000` (Node.js, `server.js`)
+**Erreichbar unter:** `http://localhost:4000` (Node.js, `server.js`) **oder direkt per Doppelklick auf `index.html`** (kein Server nötig — JS ist inline, Pfade sind relativ)
 
 ---
 
@@ -53,9 +53,9 @@ Struktur der Seite (von oben nach unten):
 |-------------|--------------------|-----|-----|---------|-------------------------------------|
 | `inp-cols`  | Spalten            | 5   | 80  | 20      | Maze neu generieren (on `change`)   |
 | `inp-rows`  | Zeilen             | 5   | 80  | 20      | Maze neu generieren (on `change`)   |
-| `inp-cell`  | Gangbreite (px)    | 4   | 40  | 10      | Maze neu generieren (on `change`)   |
-| `inp-fog`   | Sichtweite (px)    | 15  | 400 | 80      | Nur Lichtkegel-Radius, kein Rebuild |
-| `inp-fade`  | Überblendung (px)  | 0   | 150 | 40      | Nur Fade-Breite, kein Rebuild       |
+| `inp-cell`  | Gangbreite (px)    | 4   | 40  | 40      | Maze neu generieren (on `change`)   |
+| `inp-fog`   | Sichtweite (px)    | 15  | 400 | 120     | Nur Lichtkegel-Radius, kein Rebuild |
+| `inp-fade`  | Überblendung (px)  | 0   | 150 | 100     | Nur Fade-Breite, kein Rebuild       |
 
 Alle Regler zeigen den Wert live (`on input`) rechts daneben an.
 
@@ -257,6 +257,26 @@ body (flex column, height 100vh, overflow hidden)
 3. Spieler startet in **Eingangs-Zelle (unten Mitte)**
 4. Ziel: **Ausgangs-Zelle (oben Mitte)** erreichen und durch die Nordöffnung laufen (`_cy < 0`)
 5. Siegbedingung erfüllt → Timer stoppt, Overlay zeigt Zeit
+
+## Nächstes Feature (in Entwicklung)
+
+### Sackgassen-Markierung — geplante Neuimplementierung
+
+Ein erster Versuch wurde implementiert und wieder zurückgerollt (git: `0ef2e1c` → revert `f43fa5b`).
+
+**Problem des ersten Versuchs:** Das System hat alle Sackgassen innerhalb des Sichtkreises ausgegraut, unabhängig davon ob der Spieler von seiner aktuellen Position überhaupt Zugang zu diesen Bereichen hatte. Das war ein unfairer Informationsvorteil.
+
+**Gewünschtes Verhalten:**
+- Sackgassen dürfen nur ausgegraut werden, wenn der Spieler den Bereich auf seinem bisherigen Weg bereits passiert hat oder von seiner aktuellen Position aus direkt (ohne unbekannte Kreuzungen zu passieren) erreichbar war
+- Konkret: Nur Sackgassen ausgrauen, die vom Spieler aus über **bereits besuchte/bekannte Pfade** erreichbar sind
+- Bereiche hinter noch nie gesehenen Kreuzungen bleiben unmarkiert
+
+**Lösungsansatz für morgen:**
+- Spieler-Besuchshistorie tracken: `visitedCells` Set der vom Spieler betretenen Zellen
+- Nur Sackgassen ausgrauen, die von einer besuchten Zelle aus erreichbar sind, ohne eine unbesuchte Kreuzung zu passieren
+- Alternativ: Sackgassen-Trace nur starten, wenn der Spieler selbst in der Sackgasse oder im dazugehörigen Korridor steht/stand
+
+---
 
 ## Bekannte Grenzen / Designentscheidungen
 
