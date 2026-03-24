@@ -47,6 +47,7 @@ class Game {
     this._startT       = null;
     this._rafId        = null;
     this._showSolution = false;
+    this._grayCells    = new Set();   // persisted dead-end cells (key = r*cols+c)
 
     this._btnSolution = document.getElementById('btn-solution');
     this._btnSolution.addEventListener('click', () => {
@@ -102,8 +103,9 @@ class Game {
 
   _startNew() {
     this.overlay.classList.add('hidden');
-    this._won    = false;
-    this._startT = performance.now();
+    this._won       = false;
+    this._startT    = performance.now();
+    this._grayCells = new Set();
     this._heldDirs.clear();
 
     this._fitCanvas();
@@ -134,6 +136,7 @@ class Game {
     if (!this._won) {
       this.timerEl.textContent = ((performance.now() - this._startT) / 1000).toFixed(1) + ' s';
       this.player.update(this._heldDirs);
+      this._checkDeadEnds();
     }
 
     this._draw();
@@ -155,13 +158,132 @@ class Game {
     // 2. World layer translated so player centre = viewport centre
     ctx.save();
     ctx.translate(vcx - px, vcy - py);
-    this.maze.draw(ctx);
+    this.maze.draw(ctx, this._grayCells);
     if (this._showSolution) this.maze.drawSolution(ctx);
     this.player.draw(ctx);
     ctx.restore();
 
     // 3. Fog-of-War overlay
     this._drawFog(ctx, vcx, vcy);
+  }
+
+  // ── Dead-end (Sackgassen) logic ──────────────────────────────────────────
+
+  /**
+   * For every dead-end cell visible within the fog circle (not the fade zone),
+   * trace the corridor back to the nearest live junction and add all cells to
+   * _grayCells.  After tracing, cascade: any junction whose every passage leads
+   * only to already-gray cells is also marked gray (repeat until stable).
+   */
+  _checkDeadEnds() {
+    const { fog } = this._settings();
+    const fog2    = fog * fog;
+    const { deadEnds, cell, cols } = this.maze;
+    const px = this.player._cx, py = this.player._cy;
+
+    const prevSize = this._grayCells.size;
+
+    for (const [r, c] of deadEnds) {
+      if (this._grayCells.has(r * cols + c)) continue;   // already handled
+
+      // Is the dead-end centre inside the clear fog circle?
+      const dx = (c + 0.5) * cell - px;
+      const dy = (r + 0.5) * cell - py;
+      if (dx * dx + dy * dy > fog2) continue;
+
+      for (const [tr, tc] of this._traceDeadEnd(r, c)) {
+        this._grayCells.add(tr * cols + tc);
+      }
+    }
+
+    // Cascade: propagate gray through junctions that are now fully enclosed
+    if (this._grayCells.size > prevSize) this._propagateGray();
+  }
+
+  /**
+   * Walk from a dead-end cell back through corridors until:
+   *   a) we reach a junction that still has ≥1 non-gray branch  → stop, don't mark it
+   *   b) we reach a junction where all branches are gray         → mark it, stop
+   *   c) we reach a cell that is already gray                    → stop
+   * Returns the array of [r,c] cells to add to _grayCells.
+   */
+  _traceDeadEnd(startR, startC) {
+    const { cols, rows } = this.maze;
+    const REV  = { N:'S', S:'N', E:'W', W:'E' };
+    const STEP = { N:[-1,0], S:[1,0], E:[0,1], W:[0,-1] };
+
+    const result = [];
+    let r = startR, c = startC, prevDir = null;
+
+    while (true) {
+      if (r < 0 || r >= rows || c < 0 || c >= cols) break;
+      if (this._grayCells.has(r * cols + c)) break;
+
+      const passages = this.maze.openPassages(r, c);
+      const fwd      = prevDir ? passages.filter(d => d !== REV[prevDir]) : passages;
+
+      if (fwd.length === 0) {
+        // Pure dead-end, no forward passage
+        result.push([r, c]);
+        break;
+      }
+
+      if (fwd.length === 1) {
+        // Corridor — mark and continue
+        result.push([r, c]);
+        prevDir = fwd[0];
+        const [dr, dc] = STEP[fwd[0]];
+        r += dr; c += dc;
+      } else {
+        // Junction — mark only if every forward branch is already gray
+        const live = fwd.filter(d => {
+          const [dr, dc] = STEP[d];
+          return !this._grayCells.has((r + dr) * cols + (c + dc));
+        });
+        if (live.length === 0) result.push([r, c]);  // all-gray junction
+        break;
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Cascade: repeatedly scan the grid; any non-gray cell whose every open
+   * passage leads to a gray cell (or outside the maze) gets marked gray.
+   * Outer-wall openings (entry/exit) count as LIVE so those cells are protected.
+   * Runs until no new cells are added.
+   */
+  _propagateGray() {
+    const { rows, cols } = this.maze;
+    const STEP = { N:[-1,0], S:[1,0], E:[0,1], W:[0,-1] };
+    let changed = true;
+
+    while (changed) {
+      changed = false;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const k = r * cols + c;
+          if (this._grayCells.has(k)) continue;
+
+          const passages = this.maze.openPassages(r, c);
+          if (passages.length === 0) continue;
+
+          const allDead = passages.every(d => {
+            const [dr, dc] = STEP[d];
+            const nr = r + dr, nc = c + dc;
+            // Out-of-bounds = outer opening (entry/exit) → treat as LIVE
+            if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) return false;
+            return this._grayCells.has(nr * cols + nc);
+          });
+
+          if (allDead) {
+            this._grayCells.add(k);
+            changed = true;
+          }
+        }
+      }
+    }
   }
 
   _drawFog(ctx, cx, cy) {
