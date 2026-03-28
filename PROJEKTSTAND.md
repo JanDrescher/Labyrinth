@@ -1,8 +1,9 @@
 # MageMaze – Projektdokumentation
 
-**Stand:** 2026-03-26
-**Pfad:** `/var/www/html/Labyrinth/` (produktiv) · `/home/admin/Labyrinth/` (Entwicklungs-Backup)
+**Stand:** 2026-03-28
+**Pfad:** `/home/admin/Labyrinth/` — Git-Repo, Entwicklung und Live-Version (Apache zeigt direkt hierher)
 **Erreichbar unter:** `http://localhost:4000` — Apache-VirtualHost, startet automatisch mit dem System.
+**Online (GitHub Pages):** `https://JanDrescher.github.io/Labyrinth/` — wird automatisch aktualisiert bei jedem Push auf `main`.
 
 **Server-Setup:** Apache2 auf Debian mit zwei VirtualHosts:
 - Port 80 → `/var/www/wordpress` (WordPress)
