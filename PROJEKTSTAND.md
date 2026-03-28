@@ -1,8 +1,15 @@
 # Labyrinth – Projektdokumentation
 
-**Stand:** 2026-03-24 (abends)
-**Pfad:** `/home/admin/Labyrinth/`
-**Erreichbar unter:** `http://localhost:4000` (Node.js, `server.js`) **oder direkt per Doppelklick auf `index.html`** (kein Server nötig — JS ist inline, Pfade sind relativ)
+**Stand:** 2026-03-25
+**Pfad:** `/var/www/html/Labyrinth/` (produktiv) · `/home/admin/Labyrinth/` (Entwicklungs-Backup)
+**Erreichbar unter:** `http://localhost:4000` — Apache-VirtualHost, startet automatisch mit dem System.
+
+**Server-Setup:** Apache2 auf Debian mit zwei VirtualHosts:
+- Port 80 → `/var/www/wordpress` (WordPress)
+- Port 4000 → `/var/www/html/Labyrinth` (dieses Projekt)
+- Config: `/etc/apache2/sites-enabled/labyrinth.conf`
+
+**JS-Struktur:** Drei separate ES-Module (`maze.js`, `player.js`, `game.js`), eingebunden via `<script type="module" src="js/game.js">`. Funktioniert über HTTP — nicht über `file://`.
 
 ---
 

@@ -8,7 +8,6 @@ const KEY_DIR = {
   ArrowLeft:  'W', KeyA: 'W',
 };
 
-// Background colour that the fog fades to (matches --bg in CSS)
 const FOG_COLOR = '13,13,26';
 
 class Game {
@@ -32,12 +31,10 @@ class Game {
     };
 
     for (const [key, { input, display }] of Object.entries(this._sliders)) {
-      // Live label update for all sliders
       input.addEventListener('input', () => {
         display.textContent = input.value;
         this._updateSizeInfo();
       });
-      // Maze rebuild only for structural sliders
       if (key === 'cols' || key === 'rows' || key === 'cell') {
         input.addEventListener('change', () => this._startNew());
       }
@@ -66,13 +63,10 @@ class Game {
     window.addEventListener('keyup',  e => { const d = KEY_DIR[e.code]; if (d) this._heldDirs.delete(d); });
     window.addEventListener('blur',   () => this._heldDirs.clear());
 
-    // Canvas tracks the available space in #canvas-wrap
     new ResizeObserver(() => this._fitCanvas()).observe(this._wrap);
 
     this._startNew();
   }
-
-  // ── helpers ──────────────────────────────────────────────────────────────
 
   _settings() {
     return {
@@ -89,7 +83,6 @@ class Game {
     this.sizeInfo.textContent = `Labyrinth ${cols * cell} × ${rows * cell} px`;
   }
 
-  /** Resize canvas to 90 % of the wrap element — called on layout changes. */
   _fitCanvas() {
     const w = Math.floor(this._wrap.clientWidth  * 0.9);
     const h = Math.floor(this._wrap.clientHeight * 0.9);
@@ -97,8 +90,6 @@ class Game {
     this.canvas.width  = w;
     this.canvas.height = h;
   }
-
-  // ── lifecycle ────────────────────────────────────────────────────────────
 
   _startNew() {
     this.overlay.classList.add('hidden');
@@ -126,8 +117,6 @@ class Game {
     this.overlay.classList.remove('hidden');
   }
 
-  // ── rendering ────────────────────────────────────────────────────────────
-
   _loop() {
     this._rafId = requestAnimationFrame(() => this._loop());
 
@@ -148,19 +137,17 @@ class Game {
     const px  = this.player._cx;
     const py  = this.player._cy;
 
-    // 1. Dark background – visible outside maze bounds and beyond the fog edge
     ctx.fillStyle = `rgb(${FOG_COLOR})`;
     ctx.fillRect(0, 0, vw, vh);
 
-    // 2. World layer translated so player centre = viewport centre
     ctx.save();
     ctx.translate(vcx - px, vcy - py);
     this.maze.draw(ctx);
+    this.maze.drawDeadEnds(ctx, this.player.visitedCells);
     if (this._showSolution) this.maze.drawSolution(ctx);
     this.player.draw(ctx);
     ctx.restore();
 
-    // 3. Fog-of-War overlay
     this._drawFog(ctx, vcx, vcy);
   }
 
@@ -169,14 +156,12 @@ class Game {
     const vw = this.canvas.width;
     const vh = this.canvas.height;
 
-    // Gradient: transparent from centre up to fogRadius, then fades to opaque
     const g = ctx.createRadialGradient(cx, cy, fog, cx, cy, fog + fade);
     g.addColorStop(0, `rgba(${FOG_COLOR},0)`);
     g.addColorStop(1, `rgba(${FOG_COLOR},1)`);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, vw, vh);
 
-    // Solid fill outside the gradient's outer circle (evenodd cutout keeps centre clear)
     ctx.save();
     ctx.fillStyle = `rgb(${FOG_COLOR})`;
     ctx.beginPath();

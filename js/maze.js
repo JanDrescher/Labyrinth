@@ -1,42 +1,19 @@
-/**
- * Maze – Recursive-Backtracker (DFS) generator + Canvas renderer
- *
- * Grid model
- * ----------
- * Each cell (row, col) stores which of its 4 walls are still standing:
- *   walls[r][c] = { N, E, S, W }   (true = wall present)
- *
- * With CELL = 10 px and a 200×200 px canvas we get a 20×20 grid.
- * The outer border is always kept intact (no opening to the outside
- * except the explicit entry/exit passages added at the end).
- */
-
 export class Maze {
-  /**
-   * @param {number} cols   - number of columns  (default 20)
-   * @param {number} rows   - number of rows      (default 20)
-   * @param {number} cell   - cell size in pixels (default 10)
-   */
   constructor(cols = 20, rows = 20, cell = 10) {
     this.cols = cols;
     this.rows = rows;
     this.cell = cell;
 
-    // Initialise: every wall standing
     this.walls = Array.from({ length: rows }, () =>
       Array.from({ length: cols }, () => ({ N: true, E: true, S: true, W: true }))
     );
 
     this._generate();
 
-    // Entry: south wall of bottom-centre cell  →  unten Mitte
-    // Exit : north wall of top-centre cell     →  oben Mitte
     const mid = Math.floor(cols / 2);
     this.walls[rows - 1][mid].S = false;
     this.walls[0][mid].N        = false;
   }
-
-  // ── private ─────────────────────────────────────────────────────────────
 
   _generate() {
     const visited = Array.from({ length: this.rows }, () =>
@@ -52,12 +29,8 @@ export class Maze {
       const neighbors = this._unvisitedNeighbors(r, c, visited);
 
       if (neighbors.length > 0) {
-        // Pick a random unvisited neighbour
         const [nr, nc, dir] = neighbors[Math.floor(Math.random() * neighbors.length)];
-
-        // Carve passage (remove shared wall)
         this._removeWall(r, c, nr, nc, dir);
-
         visited[nr][nc] = true;
         stack.push([nr, nc]);
       } else {
@@ -77,21 +50,13 @@ export class Maze {
 
   _removeWall(r, c, nr, nc, dir) {
     const OPPOSITE = { N: 'S', S: 'N', E: 'W', W: 'E' };
-    this.walls[r][c][dir]         = false;
+    this.walls[r][c][dir]             = false;
     this.walls[nr][nc][OPPOSITE[dir]] = false;
   }
 
-  // ── public ──────────────────────────────────────────────────────────────
-
-  /**
-   * Draw the maze onto a CanvasRenderingContext2D.
-   * Only walls that are *standing* get drawn; shared edges are drawn once
-   * (we only draw N and W walls per cell, plus the outer S and E borders).
-   */
   draw(ctx) {
     const { cols, rows, cell } = this;
 
-    // Background
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, cols * cell, rows * cell);
 
@@ -107,59 +72,100 @@ export class Maze {
         const y = r * cell;
         const w = this.walls[r][c];
 
-        // North wall
-        if (w.N) {
-          ctx.moveTo(x,        y);
-          ctx.lineTo(x + cell, y);
-        }
-        // West wall
-        if (w.W) {
-          ctx.moveTo(x, y);
-          ctx.lineTo(x, y + cell);
-        }
-        // South wall – only for bottom row (inner S walls are N of next row)
-        if (r === rows - 1 && w.S) {
-          ctx.moveTo(x,        y + cell);
-          ctx.lineTo(x + cell, y + cell);
-        }
-        // East wall – only for right column
-        if (c === cols - 1 && w.E) {
-          ctx.moveTo(x + cell, y);
-          ctx.lineTo(x + cell, y + cell);
-        }
+        if (w.N) { ctx.moveTo(x,        y); ctx.lineTo(x + cell, y); }
+        if (w.W) { ctx.moveTo(x, y);        ctx.lineTo(x, y + cell); }
+        if (r === rows - 1 && w.S) { ctx.moveTo(x, y + cell); ctx.lineTo(x + cell, y + cell); }
+        if (c === cols - 1 && w.E) { ctx.moveTo(x + cell, y); ctx.lineTo(x + cell, y + cell); }
       }
     }
 
     ctx.stroke();
 
-    // Entry marker (green) – bottom centre
     const mid = Math.floor(cols / 2);
     ctx.fillStyle = '#00c853';
     ctx.fillRect(mid * cell + 1, rows * cell - 3, cell - 2, 3);
 
-    // Exit marker (red) – top centre
     ctx.fillStyle = '#d50000';
     ctx.fillRect(mid * cell + 1, 0, cell - 2, 3);
   }
 
-  /**
-   * Return true when the player can move from (r,c) in direction dir.
-   */
+  // Counts only passages to valid in-bounds neighbours (entrance/exit external openings excluded)
+  _openCount(r, c) {
+    const w = this.walls[r][c];
+    return (!w.N && r > 0              ? 1 : 0)
+         + (!w.S && r < this.rows - 1  ? 1 : 0)
+         + (!w.E && c < this.cols - 1  ? 1 : 0)
+         + (!w.W && c > 0              ? 1 : 0);
+  }
+
+  // Traces from a dead-end cell through corridor cells; returns corridor array + junction cell
+  _traceCorridor(r, c) {
+    const STEP = { N: [-1, 0], S: [1, 0], E: [0, 1], W: [0, -1] };
+    const corridor = [[r, c]];
+    let prevR = null, prevC = null, curR = r, curC = c;
+    let junctionR = null, junctionC = null;
+
+    while (true) {
+      let nextR = null, nextC = null;
+      for (const [dir, [dr, dc]] of Object.entries(STEP)) {
+        if (this.walls[curR][curC][dir]) continue;
+        const nr = curR + dr, nc = curC + dc;
+        if (nr < 0 || nr >= this.rows || nc < 0 || nc >= this.cols) continue;
+        if (nr === prevR && nc === prevC) continue;
+        nextR = nr; nextC = nc;
+      }
+      if (nextR === null) break;
+      if (this._openCount(nextR, nextC) !== 2) { junctionR = nextR; junctionC = nextC; break; }
+      prevR = curR; prevC = curC;
+      curR = nextR; curC = nextC;
+      corridor.push([curR, curC]);
+    }
+    return { corridor, junctionR, junctionC };
+  }
+
+  deadEndCorridors() {
+    if (this._deadEndCorridors) return this._deadEndCorridors;
+    const exitC = Math.floor(this.cols / 2);
+    const corridors = [];
+    for (let r = 0; r < this.rows; r++) {
+      for (let c = 0; c < this.cols; c++) {
+        if (r === 0 && c === exitC) continue;          // exit is not a dead end
+        if (this._openCount(r, c) === 1) corridors.push(this._traceCorridor(r, c));
+      }
+    }
+    this._deadEndCorridors = corridors;
+    return corridors;
+  }
+
+  drawDeadEnds(ctx, visitedCells) {
+    const corridors = this.deadEndCorridors();
+    const { cell, cols } = this;
+    ctx.save();
+    ctx.fillStyle = 'rgba(120,120,140,0.4)';
+    for (const { corridor, junctionR, junctionC } of corridors) {
+      // Known if the junction connecting this corridor to the maze has been visited,
+      // or if the player physically entered the corridor
+      const junctionKnown = junctionR !== null && visitedCells.has(junctionR * cols + junctionC);
+      const corridorKnown = corridor.some(([r, c]) => visitedCells.has(r * cols + c));
+      if (!junctionKnown && !corridorKnown) continue;
+      for (const [r, c] of corridor) {
+        ctx.fillRect(c * cell, r * cell, cell, cell);
+      }
+    }
+    ctx.restore();
+  }
+
   canMove(r, c, dir) {
     if (r < 0 || r >= this.rows || c < 0 || c >= this.cols) return false;
     return !this.walls[r][c][dir];
   }
 
-  /**
-   * BFS shortest path from entry (bottom-centre) to exit (top-centre).
-   * Returns an array of [row, col] pairs. Result is cached.
-   */
   solution() {
     if (this._solution) return this._solution;
 
     const mid   = Math.floor(this.cols / 2);
-    const sr    = this.rows - 1, sc = mid;   // start = entry cell
-    const er    = 0,             ec = mid;   // end   = exit  cell
+    const sr    = this.rows - 1, sc = mid;
+    const er    = 0,             ec = mid;
 
     const key   = (r, c) => r * this.cols + c;
     const prev  = new Map();
@@ -171,7 +177,7 @@ export class Maze {
     outer: while (queue.length > 0) {
       const [r, c] = queue.shift();
       for (const [dir, [dr, dc]] of Object.entries(STEP)) {
-        if (this.walls[r][c][dir]) continue;          // wall blocks
+        if (this.walls[r][c][dir]) continue;
         const nr = r + dr, nc = c + dc;
         if (nr < 0 || nr >= this.rows || nc < 0 || nc >= this.cols) continue;
         const k = key(nr, nc);
@@ -182,7 +188,6 @@ export class Maze {
       }
     }
 
-    // Reconstruct path end → start, then reverse
     const path = [];
     let cur = [er, ec];
     while (cur) {
@@ -195,9 +200,6 @@ export class Maze {
     return path;
   }
 
-  /**
-   * Draw the solution path as a red centre-line.
-   */
   drawSolution(ctx) {
     const path = this.solution();
     const { cell } = this;
