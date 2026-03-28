@@ -6,12 +6,13 @@ export class Player {
 
     this._cx     = (mid + 0.5) * cell;
     this._cy     = (rows - 0.5) * cell;
-    this._speed  = 1.5;
+    this._speed  = 3;
     this._facing = 'N';
     this.onGoal  = null;
     this._done   = false;
 
-    this.visitedCells = new Set();
+    this.visitedCells   = new Set();
+    this.knownDeadCells = new Set();
     this.visitedCells.add((rows - 1) * cols + mid);
   }
 
@@ -41,26 +42,60 @@ export class Player {
 
   draw(ctx) {
     const cell = this.maze.cell;
-    const r    = Math.max(2, cell * 0.28);
+    const r    = Math.max(4, cell * 0.30);
 
     const DIR_ANGLE = { N: -Math.PI / 2, S: Math.PI / 2, E: 0, W: Math.PI };
-    const angle     = DIR_ANGLE[this._facing];
+    const angle = DIR_ANGLE[this._facing];
+    const perp  = angle + Math.PI / 2;
+    const ca = Math.cos(angle), sa = Math.sin(angle);
+    const cp = Math.cos(perp),  sp = Math.sin(perp);
 
-    ctx.fillStyle = '#1565c0';
+    ctx.save();
+    ctx.translate(this._cx, this._cy);
+
+    // Pointed hat – drawn first so the robe circle covers its base
+    ctx.fillStyle = '#311b92';
     ctx.beginPath();
-    ctx.arc(this._cx, this._cy, r, 0, Math.PI * 2);
+    ctx.moveTo(ca * r * 1.85, sa * r * 1.85);                          // tip
+    ctx.lineTo(ca * r * 0.1 + cp * r * 0.55, sa * r * 0.1 + sp * r * 0.55); // base left
+    ctx.lineTo(ca * r * 0.1 - cp * r * 0.55, sa * r * 0.1 - sp * r * 0.55); // base right
+    ctx.closePath();
     ctx.fill();
 
-    const dotR    = Math.max(1, r * 0.28);
-    const dotDist = r * 0.48;
-    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    // Robe body
+    ctx.fillStyle = '#6a1b9a';
     ctx.beginPath();
-    ctx.arc(
-      this._cx + Math.cos(angle) * dotDist,
-      this._cy + Math.sin(angle) * dotDist,
-      dotR, 0, Math.PI * 2
-    );
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
     ctx.fill();
+
+    // Subtle radial shine on robe
+    const shine = ctx.createRadialGradient(-r * 0.25, -r * 0.25, 0, 0, 0, r);
+    shine.addColorStop(0, 'rgba(186,104,200,0.45)');
+    shine.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = shine;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Golden stars on robe
+    const SR = Math.max(1, r * 0.09);
+    ctx.fillStyle = '#ffd740';
+    for (const [fx, fy] of [[-0.45, 0.1], [0.35, -0.35], [0.1, 0.55], [-0.15, -0.55]]) {
+      ctx.beginPath();
+      ctx.arc(fx * r, fy * r, SR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Eyes – two white dots in facing direction
+    const eD = r * 0.52, eS = r * 0.20;
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(ca * eD + cp * eS * s, sa * eD + sp * eS * s, Math.max(1, r * 0.13), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
   }
 
   _moveX(dx) {

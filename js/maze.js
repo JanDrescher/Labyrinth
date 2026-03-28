@@ -54,103 +54,186 @@ export class Maze {
     this.walls[nr][nc][OPPOSITE[dir]] = false;
   }
 
+  _makeFloorPattern(ctx) {
+    // Running-bond (Mauerverband): row 2 offset by half a brick width
+    const bw = 30, bh = 13, g = 2;          // brick width/height, grout thickness
+    const tw = bw + g, th = 2 * (bh + g);   // tile canvas size
+    const tc = document.createElement('canvas');
+    tc.width = tw; tc.height = th;
+    const t = tc.getContext('2d');
+
+    // Grout / mortar
+    t.fillStyle = '#57524e';
+    t.fillRect(0, 0, tw, th);
+
+    const brick = (x, y, w, h, col) => {
+      t.fillStyle = col;
+      t.fillRect(x, y, w, h);
+      t.fillStyle = 'rgba(255,255,255,0.13)';  // top-left highlight
+      t.fillRect(x, y, w, 2);
+      t.fillRect(x, y, 2, h);
+      t.fillStyle = 'rgba(0,0,0,0.18)';         // bottom-right shadow
+      t.fillRect(x, y + h - 2, w, 2);
+      t.fillRect(x + w - 2, y, 2, h);
+    };
+
+    brick(0,          0,      bw,     bh, '#aaa29a');  // row 1 – full brick
+    brick(0,          bh + g, bw / 2, bh, '#a29a91');  // row 2 – left half
+    brick(bw / 2 + g, bh + g, bw / 2, bh, '#b0a8a0'); // row 2 – right half
+
+    return ctx.createPattern(tc, 'repeat');
+  }
+
+  _makeWallPattern(ctx) {
+    // Rough stone blocks — larger and more irregular than the floor bricks
+    const bw = 14, bh = 8, g = 2;          // block width/height, mortar thickness
+    const tw = bw + g, th = 2 * (bh + g);   // tile canvas size (running bond)
+    const tc = document.createElement('canvas');
+    tc.width = tw; tc.height = th;
+    const t = tc.getContext('2d');
+
+    // Mortar — near-black with faint violet hint
+    t.fillStyle = '#14121e';
+    t.fillRect(0, 0, tw, th);
+
+    const stone = (x, y, w, h, col) => {
+      t.fillStyle = col;
+      t.fillRect(x, y, w, h);
+      // subtle top-left highlight
+      t.fillStyle = 'rgba(180,160,255,0.07)';
+      t.fillRect(x, y, w, 2);
+      t.fillRect(x, y, 2, h);
+      // bottom-right shadow
+      t.fillStyle = 'rgba(0,0,0,0.35)';
+      t.fillRect(x, y + h - 2, w, 2);
+      t.fillRect(x + w - 2, y, 2, h);
+      // faint internal crack / texture noise
+      t.fillStyle = 'rgba(0,0,0,0.12)';
+      t.fillRect(x + Math.floor(w * 0.4), y + 2, 1, h - 4);
+    };
+
+    // Row 1 — one full block
+    stone(0,          0,      bw,       bh, '#2a2640');
+    // Row 2 — two half blocks (offset by half, running bond)
+    stone(0,          bh + g, bw * 0.45, bh, '#231f38');
+    stone(bw * 0.45 + g, bh + g, bw * 0.55, bh, '#302c46');
+
+    // Faint magic glow in mortar seam between rows (horizontal line)
+    t.fillStyle = 'rgba(100,80,180,0.12)';
+    t.fillRect(0, bh, tw, g);
+
+    return ctx.createPattern(tc, 'repeat');
+  }
+
   draw(ctx) {
     const { cols, rows, cell } = this;
+    const W = Math.max(3, Math.round(cell * 0.10)); // wall half-thickness per side
+    const s = cell - 2 * W;                         // corridor/interior width
 
-    ctx.fillStyle = '#ffffff';
+    // Fill entire area with stone wall pattern
+    if (!this._wallPattern) this._wallPattern = this._makeWallPattern(ctx);
+    ctx.fillStyle = this._wallPattern;
     ctx.fillRect(0, 0, cols * cell, rows * cell);
 
-    ctx.strokeStyle = '#1a1a2e';
-    ctx.lineWidth   = 1;
-    ctx.lineCap     = 'square';
-
-    ctx.beginPath();
-
+    // Carve out floor corridors with stone tile pattern
+    if (!this._floorPattern) this._floorPattern = this._makeFloorPattern(ctx);
+    ctx.fillStyle = this._floorPattern;
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const x = c * cell;
-        const y = r * cell;
-        const w = this.walls[r][c];
-
-        if (w.N) { ctx.moveTo(x,        y); ctx.lineTo(x + cell, y); }
-        if (w.W) { ctx.moveTo(x, y);        ctx.lineTo(x, y + cell); }
-        if (r === rows - 1 && w.S) { ctx.moveTo(x, y + cell); ctx.lineTo(x + cell, y + cell); }
-        if (c === cols - 1 && w.E) { ctx.moveTo(x + cell, y); ctx.lineTo(x + cell, y + cell); }
+        const x = c * cell + W, y = r * cell + W;
+        ctx.fillRect(x, y, s, s);                                         // cell interior
+        if (!this.walls[r][c].E && c < cols - 1)
+          ctx.fillRect(c * cell + cell - W, y, 2 * W, s);                 // passage east
+        if (!this.walls[r][c].S && r < rows - 1)
+          ctx.fillRect(x, r * cell + cell - W, s, 2 * W);                 // passage south
       }
     }
 
-    ctx.stroke();
 
+    // Entrance and exit openings at maze edges
     const mid = Math.floor(cols / 2);
+    ctx.fillRect(mid * cell + W, rows * cell - W, s, W);  // entrance (south)
+    ctx.fillRect(mid * cell + W, 0,               s, W);  // exit (north)
+
+    // Entrance marker (green) and exit marker (red)
     ctx.fillStyle = '#00c853';
-    ctx.fillRect(mid * cell + 1, rows * cell - 3, cell - 2, 3);
-
+    ctx.fillRect(mid * cell + W, rows * cell - 3, s, 3);
     ctx.fillStyle = '#d50000';
-    ctx.fillRect(mid * cell + 1, 0, cell - 2, 3);
+    ctx.fillRect(mid * cell + W, 0, s, 3);
   }
 
-  // Counts only passages to valid in-bounds neighbours (entrance/exit external openings excluded)
-  _openCount(r, c) {
-    const w = this.walls[r][c];
-    return (!w.N && r > 0              ? 1 : 0)
-         + (!w.S && r < this.rows - 1  ? 1 : 0)
-         + (!w.E && c < this.cols - 1  ? 1 : 0)
-         + (!w.W && c > 0              ? 1 : 0);
-  }
+  // Discovers new dead-end regions (fog-bounded flood fill from visited cells),
+  // persists them in knownDeadCells, then draws all known dead cells.
+  drawDeadEnds(ctx, visitedCells, knownDeadCells, playerCx, playerCy, fogRadius) {
+    const { cell, cols, rows, walls } = this;
+    const DIRS = [['N', -1, 0], ['S', 1, 0], ['E', 0, 1], ['W', 0, -1]];
+    const key   = (r, c) => r * cols + c;
+    const fogR2 = fogRadius * fogRadius;
+    const dist2 = (r, c) => {
+      const dx = (c + 0.5) * cell - playerCx;
+      const dy = (r + 0.5) * cell - playerCy;
+      return dx * dx + dy * dy;
+    };
 
-  // Traces from a dead-end cell through corridor cells; returns corridor array + junction cell
-  _traceCorridor(r, c) {
-    const STEP = { N: [-1, 0], S: [1, 0], E: [0, 1], W: [0, -1] };
-    const corridor = [[r, c]];
-    let prevR = null, prevC = null, curR = r, curC = c;
-    let junctionR = null, junctionC = null;
+    const processed = new Set();   // cells already handled this frame
 
-    while (true) {
-      let nextR = null, nextC = null;
-      for (const [dir, [dr, dc]] of Object.entries(STEP)) {
-        if (this.walls[curR][curC][dir]) continue;
-        const nr = curR + dr, nc = curC + dc;
-        if (nr < 0 || nr >= this.rows || nc < 0 || nc >= this.cols) continue;
-        if (nr === prevR && nc === prevC) continue;
-        nextR = nr; nextC = nc;
+    for (const vKey of visitedCells) {
+      const vr = Math.floor(vKey / cols);
+      const vc = vKey % cols;
+
+      for (const [dir, dr, dc] of DIRS) {
+        if (walls[vr][vc][dir]) continue;
+        const sr = vr + dr, sc = vc + dc;
+        if (sr < 0 || sr >= rows || sc < 0 || sc >= cols) continue;
+        const sk = key(sr, sc);
+        // skip if already visited, already known dead, or already processed this frame
+        if (visitedCells.has(sk) || knownDeadCells.has(sk) || processed.has(sk)) continue;
+
+        // BFS: collect unvisited, non-dead cells reachable within fog from (sr, sc)
+        const region = new Set([sk]);
+        const queue  = [[sr, sc]];
+        let head     = 0;
+        let deadEnd  = true;
+
+        while (head < queue.length) {
+          const [r, c] = queue[head++];
+
+          for (const [d2, dr2, dc2] of DIRS) {
+            if (walls[r][c][d2]) continue;
+            const nr = r + dr2, nc = c + dc2;
+            if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) {
+              // An open wall leaving the grid is a real exit (the entrance going south
+              // is nr >= rows — that one is a dead end; anything else, e.g. the exit
+              // going north with nr < 0, is a genuine way out)
+              if (nr < 0) deadEnd = false;
+              continue;
+            }
+            const k2 = key(nr, nc);
+            if (visitedCells.has(k2))   continue;   // visited = boundary
+            if (knownDeadCells.has(k2)) continue;   // already dead = boundary
+            if (region.has(k2))         continue;
+
+            if (dist2(nr, nc) > fogR2) {
+              deadEnd = false;   // passage leads into unseen territory
+              continue;          // don't expand outside fog
+            }
+            region.add(k2);
+            queue.push([nr, nc]);
+          }
+        }
+
+        for (const k of region) processed.add(k);
+        if (deadEnd) for (const k of region) knownDeadCells.add(k);
       }
-      if (nextR === null) break;
-      if (this._openCount(nextR, nextC) !== 2) { junctionR = nextR; junctionC = nextC; break; }
-      prevR = curR; prevC = curC;
-      curR = nextR; curC = nextC;
-      corridor.push([curR, curC]);
     }
-    return { corridor, junctionR, junctionC };
-  }
 
-  deadEndCorridors() {
-    if (this._deadEndCorridors) return this._deadEndCorridors;
-    const exitC = Math.floor(this.cols / 2);
-    const corridors = [];
-    for (let r = 0; r < this.rows; r++) {
-      for (let c = 0; c < this.cols; c++) {
-        if (r === 0 && c === exitC) continue;          // exit is not a dead end
-        if (this._openCount(r, c) === 1) corridors.push(this._traceCorridor(r, c));
-      }
-    }
-    this._deadEndCorridors = corridors;
-    return corridors;
-  }
-
-  drawDeadEnds(ctx, visitedCells) {
-    const corridors = this.deadEndCorridors();
-    const { cell, cols } = this;
+    // Draw all persistently known dead cells (including those the player has since walked through)
     ctx.save();
     ctx.fillStyle = 'rgba(120,120,140,0.4)';
-    for (const { corridor, junctionR, junctionC } of corridors) {
-      // Known if the junction connecting this corridor to the maze has been visited,
-      // or if the player physically entered the corridor
-      const junctionKnown = junctionR !== null && visitedCells.has(junctionR * cols + junctionC);
-      const corridorKnown = corridor.some(([r, c]) => visitedCells.has(r * cols + c));
-      if (!junctionKnown && !corridorKnown) continue;
-      for (const [r, c] of corridor) {
-        ctx.fillRect(c * cell, r * cell, cell, cell);
-      }
+    for (const k of knownDeadCells) {
+      const r = Math.floor(k / cols);
+      const c = k % cols;
+      ctx.fillRect(c * cell, r * cell, cell, cell);
     }
     ctx.restore();
   }

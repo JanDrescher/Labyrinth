@@ -1,6 +1,6 @@
-# Labyrinth – Projektdokumentation
+# MageMaze – Projektdokumentation
 
-**Stand:** 2026-03-25
+**Stand:** 2026-03-26
 **Pfad:** `/var/www/html/Labyrinth/` (produktiv) · `/home/admin/Labyrinth/` (Entwicklungs-Backup)
 **Erreichbar unter:** `http://localhost:4000` — Apache-VirtualHost, startet automatisch mit dem System.
 
@@ -60,7 +60,7 @@ Struktur der Seite (von oben nach unten):
 |-------------|--------------------|-----|-----|---------|-------------------------------------|
 | `inp-cols`  | Spalten            | 5   | 80  | 20      | Maze neu generieren (on `change`)   |
 | `inp-rows`  | Zeilen             | 5   | 80  | 20      | Maze neu generieren (on `change`)   |
-| `inp-cell`  | Gangbreite (px)    | 4   | 40  | 40      | Maze neu generieren (on `change`)   |
+| `inp-cell`  | Gangbreite (px)    | 4   | 80  | 80      | Maze neu generieren (on `change`)   |
 | `inp-fog`   | Sichtweite (px)    | 15  | 400 | 120     | Nur Lichtkegel-Radius, kein Rebuild |
 | `inp-fade`  | Überblendung (px)  | 0   | 150 | 100     | Nur Fade-Breite, kein Rebuild       |
 
@@ -91,13 +91,34 @@ Alle Regler zeigen den Wert live (`on input`) rechts daneben an.
 - Stack-basierter DFS: wählt zufälligen unbesuchten Nachbarn, entfernt Trennwand, geht weiter
 - Erzeugt ein **perfektes Labyrinth** (keine Schleifen, jede Zelle genau einmal erreichbar)
 
-### `draw(ctx)`
+### `draw(ctx)` — Thick-Wall-Renderer
 
-- Füllt den Maze-Bereich weiß: `fillRect(0, 0, cols*cell, rows*cell)`
-- Zeichnet alle stehenden Wände als 1px-Linien in `#1a1a2e`
-- Optimierung: N- und W-Wand pro Zelle, S nur letzte Zeile, E nur letzte Spalte
-- **Eingangs-Marker** (grün `#00c853`): 3px-Streifen am unteren Rand, Mitte
-- **Ausgangs-Marker** (rot `#d50000`): 3px-Streifen am oberen Rand, Mitte
+Wandstärke `W = Math.max(3, Math.round(cell * 0.10))` pro Seite, Gangbreite `s = cell - 2*W`.
+
+1. Gesamte Maze-Fläche mit Wandmuster füllen (via `_wallPattern`, s.u.)
+2. Gänge als Bodenflächen freischneiden (mit `_floorPattern`, s.u.):
+   - Jede Zelle: `fillRect(c*cell+W, r*cell+W, s, s)` — Zellinnenraum
+   - Offene Ostwand: `fillRect(c*cell+cell-W, r*cell+W, 2W, s)` — Verbindungsgang East
+   - Offene Südwand: `fillRect(c*cell+W, r*cell+cell-W, s, 2W)` — Verbindungsgang South
+3. Eingangs-/Ausgangsöffnung an Maze-Kante freischneiden
+4. **Eingangs-Marker** (grün `#00c853`): 3px-Streifen am unteren Rand, Breite `s`
+5. **Ausgangs-Marker** (rot `#d50000`): 3px-Streifen am oberen Rand, Breite `s`
+
+### `_makeWallPattern(ctx)` — Bruchstein-Wandmuster
+
+Erzeugt einmalig ein `CanvasPattern` (gecacht als `this._wallPattern`) aus einem Off-screen-Canvas:
+
+- **Mauerverband (Running Bond):** Stein `14×8`px, Fuge `2`px, Reihe 2 um halbe Steinbreite versetzt
+- Drei dunkle Lila-Grautöne (`#2a2640`, `#231f38`, `#302c46`) + Highlight/Shadow-Bevel + feiner Riss
+- Fugenfarbe: `#14121e`, horizontale Fuge mit minimalem Lila-Glimmer `rgba(100,80,180,0.12)`
+
+### `_makeFloorPattern(ctx)` — Mauerverband-Bodenmuster
+
+Erzeugt einmalig ein `CanvasPattern` (gecacht als `this._floorPattern`) aus einem `30×30`px Off-screen-Canvas:
+
+- **Mauerverband (Running Bond):** Ziegel `30×13`px, Fuge `2`px, Reihe 2 um `16`px versetzt
+- Drei leicht verschiedene Ziegelfarben (`#aaa29a`, `#a29a91`, `#b0a8a0`) + Highlight/Shadow-Bevel
+- Fugenfarbe: `#57524e`
 
 ### `solution()` — BFS-Kürzester-Pfad (gecacht)
 
@@ -127,7 +148,7 @@ Alle Regler zeigen den Wert live (`on input`) rechts daneben an.
 
 ```
 _cx, _cy     Pixelposition des Mittelpunkts (float)
-_speed       1.5 px/Frame
+_speed       3 px/Frame
 _facing      'N' | 'S' | 'E' | 'W' — letzte Bewegungsrichtung, initial 'N'
 onGoal       Callback, wird einmal gefeuert wenn Spieler gewinnt
 _done        true nach Sieg → update() tut nichts mehr
@@ -158,13 +179,14 @@ _done        true nach Sieg → update() tut nichts mehr
 - Bei `dy < 0` (Nord): clampt wenn `walls[row][col].N === true`
   - Ausgangs-Zelle hat `walls[0][mid].N = false` → Spieler kann hindurch → Sieg
 
-### `draw(ctx)`
+### `draw(ctx)` — Wizard-Sprite
 
-- **Körper:** blauer Kreis (`#1565c0`), Radius `Math.max(2, cell * 0.28)`
-- **Richtungs-Auge:** kleiner weißer Kreis (`rgba(255,255,255,0.92)`)
-  - Radius: `Math.max(1, r * 0.28)`
-  - Distanz vom Mittelpunkt: `r * 0.48` in Richtung `_facing`
-  - Winkelberechnung: `{ N: -π/2, S: π/2, E: 0, W: π }`
+Radius `r = Math.max(4, cell * 0.30)`, gezeichnet im lokalen Koordinatensystem (`ctx.translate` auf Spielerposition):
+
+- **Spitzer Hut** (`#311b92`): Dreieck, Spitze bei `r*1.85` in Blickrichtung, Basis ±`r*0.55` senkrecht dazu — wird zuerst gezeichnet, damit die Robe die Basis überdeckt
+- **Robe** (`#6a1b9a`): Kreis Radius `r` + radialer Glanz-Gradient (`rgba(186,104,200,0.45)`)
+- **Goldene Sterne** (`#ffd740`): 4 kleine Kreise (Radius `r*0.09`) an festen Positionen auf der Robe
+- **Augen** (`rgba(255,255,255,0.95)`): 2 weiße Punkte (Radius `r*0.13`) in Blickrichtung bei Abstand `r*0.52`, seitlicher Versatz `r*0.20`
 
 ---
 
@@ -175,12 +197,12 @@ _done        true nach Sieg → update() tut nichts mehr
 Der Canvas ist ein **festes Viewport-Fenster** — das Labyrinth bewegt sich darunter:
 
 ```javascript
-ctx.translate(vcx - player._cx, vcy - player._cy)
+ctx.translate(Math.round(vcx - player._cx), Math.round(vcy - player._cy))
 ```
 
 - `vcx = canvas.width / 2`, `vcy = canvas.height / 2`
 - Spieler ist immer in der Mitte des Viewports
-- Maze-Koordinaten bleiben unverändert
+- **`Math.round()`** ist wichtig: verhindert Subpixel-Rendering-Artefakte (1px-Lücken zwischen Bodenkacheln)
 
 ### Canvas-Größe
 
@@ -265,29 +287,37 @@ body (flex column, height 100vh, overflow hidden)
 4. Ziel: **Ausgangs-Zelle (oben Mitte)** erreichen und durch die Nordöffnung laufen (`_cy < 0`)
 5. Siegbedingung erfüllt → Timer stoppt, Overlay zeigt Zeit
 
-## Nächstes Feature (in Entwicklung)
+## Sackgassen-Markierung (implementiert)
 
-### Sackgassen-Markierung — geplante Neuimplementierung
+Sackgassen-Bereiche werden ausgegraut, sobald der Spieler erkennen kann, dass sie keine Weiterführung haben.
 
-Ein erster Versuch wurde implementiert und wieder zurückgerollt (git: `0ef2e1c` → revert `f43fa5b`).
+### Algorithmus — Fog-bounded Flood Fill (`maze.js → drawDeadEnds`)
 
-**Problem des ersten Versuchs:** Das System hat alle Sackgassen innerhalb des Sichtkreises ausgegraut, unabhängig davon ob der Spieler von seiner aktuellen Position überhaupt Zugang zu diesen Bereichen hatte. Das war ein unfairer Informationsvorteil.
+**Signatur:** `drawDeadEnds(ctx, visitedCells, knownDeadCells, playerCx, playerCy, fogRadius)`
 
-**Gewünschtes Verhalten:**
-- Sackgassen dürfen nur ausgegraut werden, wenn der Spieler den Bereich auf seinem bisherigen Weg bereits passiert hat oder von seiner aktuellen Position aus direkt (ohne unbekannte Kreuzungen zu passieren) erreichbar war
-- Konkret: Nur Sackgassen ausgrauen, die vom Spieler aus über **bereits besuchte/bekannte Pfade** erreichbar sind
-- Bereiche hinter noch nie gesehenen Kreuzungen bleiben unmarkiert
+Von jeder besuchten Zelle aus werden alle angrenzenden, noch nicht besuchten Zellen per BFS untersucht:
 
-**Lösungsansatz für morgen:**
-- Spieler-Besuchshistorie tracken: `visitedCells` Set der vom Spieler betretenen Zellen
-- Nur Sackgassen ausgrauen, die von einer besuchten Zelle aus erreichbar sind, ohne eine unbesuchte Kreuzung zu passieren
-- Alternativ: Sackgassen-Trace nur starten, wenn der Spieler selbst in der Sackgasse oder im dazugehörigen Korridor steht/stand
+1. BFS expandiert durch unbesuchte, noch nicht als Sackgasse bekannte Zellen
+2. Expansion stoppt an: Wänden · besuchten Zellen · `knownDeadCells` · Fog-Grenze
+3. Führt irgendwo eine offene Passage in eine Zelle **außerhalb** des Sichtradius → `deadEnd = false`
+4. Führt eine offene Passage aus dem Raster nach Norden (`nr < 0`) → das ist der Ausgang → `deadEnd = false`
+5. Passage nach Süden aus dem Raster (`nr >= rows`) → Eingang → wird ignoriert (kein Effekt)
+6. Bleibt die gesamte Region innerhalb des Sichtfelds → `deadEnd = true` → alle Zellen in `knownDeadCells` aufnehmen
+
+### Persistenz (`player.js`)
+
+- `visitedCells` Set — alle vom Spieler betretenen Zellen (Key: `row * cols + col`)
+- `knownDeadCells` Set — einmal als Sackgasse erkannte Zellen, wächst nur, wird nie geleert
+
+Beide Sets leben auf dem `Player`-Objekt und werden bei `_startNew()` durch neues `Player`-Objekt zurückgesetzt.
+
+Beim Zeichnen werden **alle** `knownDeadCells` grau gefärbt — auch bereits besuchte Zellen, damit der Spieler beim Durchlaufen eines Sackgassen-Bereichs kein Weiß sieht.
 
 ---
 
 ## Bekannte Grenzen / Designentscheidungen
 
 - Maze-Generator startet DFS immer bei `(0,0)` → statistisch längere Wege in der oberen linken Ecke
-- Spielgeschwindigkeit ist fix (`1.5 px/Frame`) — nicht skaliert mit Gangbreite
+- Spielgeschwindigkeit ist fix (`3 px/Frame`) — nicht skaliert mit Gangbreite
 - Lösung wird via BFS berechnet (kürzester Pfad), gecacht, nicht animiert
 - Spieler kann nicht durch den Eingang (Süd) herausfallen — untere Grenze wird immer geblockt

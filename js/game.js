@@ -141,9 +141,10 @@ class Game {
     ctx.fillRect(0, 0, vw, vh);
 
     ctx.save();
-    ctx.translate(vcx - px, vcy - py);
+    ctx.translate(Math.round(vcx - px), Math.round(vcy - py));
     this.maze.draw(ctx);
-    this.maze.drawDeadEnds(ctx, this.player.visitedCells);
+    const { fog, fade } = this._settings();
+    this.maze.drawDeadEnds(ctx, this.player.visitedCells, this.player.knownDeadCells, px, py, fog + fade);
     if (this._showSolution) this.maze.drawSolution(ctx);
     this.player.draw(ctx);
     ctx.restore();
