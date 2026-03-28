@@ -7,7 +7,7 @@
 
 **Server-Setup:** Apache2 auf Debian mit zwei VirtualHosts:
 - Port 80 → `/var/www/wordpress` (WordPress)
-- Port 4000 → `/var/www/html/Labyrinth` (dieses Projekt)
+- Port 4000 → `/home/admin/Labyrinth` (dieses Projekt)
 - Config: `/etc/apache2/sites-enabled/labyrinth.conf`
 
 **JS-Struktur:** Drei separate ES-Module (`maze.js`, `player.js`, `game.js`), eingebunden via `<script type="module" src="js/game.js">`. Funktioniert über HTTP — nicht über `file://`.
@@ -148,11 +148,13 @@ Erzeugt einmalig ein `CanvasPattern` (gecacht als `this._floorPattern`) aus eine
 ### Konstruktor
 
 ```
-_cx, _cy     Pixelposition des Mittelpunkts (float)
-_speed       3 px/Frame
-_facing      'N' | 'S' | 'E' | 'W' — letzte Bewegungsrichtung, initial 'N'
-onGoal       Callback, wird einmal gefeuert wenn Spieler gewinnt
-_done        true nach Sieg → update() tut nichts mehr
+_cx, _cy        Pixelposition des Mittelpunkts (float)
+_speed          3 px/Frame
+_facing         'N' | 'S' | 'E' | 'W' — letzte Bewegungsrichtung, initial 'N'
+onGoal          Callback, wird einmal gefeuert wenn Spieler gewinnt
+_done           true nach Sieg → update() tut nichts mehr
+visitedCells    Set<number> — alle betretenen Zellen (Key: row*cols+col), startet mit Eingangs-Zelle
+knownDeadCells  Set<number> — einmal als Sackgasse erkannte Zellen, wächst nur, wird nie geleert
 ```
 
 **Startposition:** Mitte der Eingangs-Zelle = `((mid + 0.5) * cell, (rows - 0.5) * cell)`
@@ -240,10 +242,11 @@ blur    → _heldDirs.clear()   // verhindert "hängende" Tasten
 1. canvas fill dark
 2. ctx.save / translate
 3.   maze.draw(ctx)
-4.   maze.drawSolution(ctx)   ← nur wenn _showSolution
-5.   player.draw(ctx)
-6. ctx.restore
-7. _drawFog(ctx)
+4.   maze.drawDeadEnds(ctx, visitedCells, knownDeadCells, px, py, fog+fade)
+5.   maze.drawSolution(ctx)   ← nur wenn _showSolution
+6.   player.draw(ctx)
+7. ctx.restore
+8. _drawFog(ctx)
 ```
 
 ### Lebenszyklus
