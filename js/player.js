@@ -11,6 +11,7 @@ export class Player {
     this.onGoal  = null;
     this._done   = false;
 
+    this.phasing        = false;
     this.visitedCells   = new Set();
     this.knownDeadCells = new Set();
     this.visitedCells.add((rows - 1) * cols + mid);
@@ -110,10 +111,10 @@ export class Player {
 
     if (dx > 0) {
       const wallX = (col + 1) * cell;
-      if (newCx + hw >= wallX && walls[row][col].E) { this._cx = wallX - hw; return; }
+      if (!this.phasing && newCx + hw >= wallX && walls[row][col].E) { this._cx = wallX - hw; return; }
     } else {
       const wallX = col * cell;
-      if (newCx - hw <= wallX && walls[row][col].W) { this._cx = wallX + hw; return; }
+      if (!this.phasing && newCx - hw <= wallX && walls[row][col].W) { this._cx = wallX + hw; return; }
     }
 
     this._cx = newCx;
@@ -131,10 +132,11 @@ export class Player {
 
     if (dy > 0) {
       const wallY = (row + 1) * cell;
-      if (newCy + hw >= wallY && (walls[row][col].S || row >= rows - 1)) { this._cy = wallY - hw; return; }
+      const blocked = (!this.phasing && walls[row][col].S) || row >= rows - 1;
+      if (newCy + hw >= wallY && blocked) { this._cy = wallY - hw; return; }
     } else {
       const wallY = row * cell;
-      if (newCy - hw <= wallY && walls[row][col].N) { this._cy = wallY + hw; return; }
+      if (!this.phasing && newCy - hw <= wallY && walls[row][col].N) { this._cy = wallY + hw; return; }
     }
 
     this._cy = newCy;

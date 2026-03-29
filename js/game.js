@@ -12,14 +12,22 @@ const FOG_COLOR = '13,13,26';
 
 // index 0 → key "1", index 9 → key "0"
 // initialCount: charges the player starts the whole game with (not reset between levels)
+// itemDiv: items per maze = floor(sqrt(area) / itemDiv); omit → no items
 const SPELL_DEFS = [
-  { name: 'Pfad',      duration: 5,  initialCount: 2, itemColor: '#4dd0e1' },
-  { name: 'Sackgasse', duration: 15, initialCount: 3, itemColor: '#ffb300' },
-  null, null, null, null, null, null, null, null,
+  { name: 'Pfad',      duration: 5,  initialCount: 2, itemColor: '#4dd0e1', itemDiv: 10 },
+  { name: 'Sackgasse', duration: 15, initialCount: 3, itemColor: '#ffb300', itemDiv:  5 },
+  { name: 'Sprung',    duration: 5,  initialCount: 2, itemColor: '#69f0ae', itemDiv:  8 },
+  { name: 'Pforte',    duration: 5,  initialCount: 2, itemColor: '#ce93d8', itemDiv:  9 },
+  { name: 'Geist',     duration: 6,  initialCount: 2, itemColor: '#90caf9', itemDiv:  9 },
+  { name: 'Leuchtfeuer', duration: 0, initialCount: 3, itemColor: '#ffab40', itemDiv:  6 },
+  { name: 'Orakel',     duration: 4, initialCount: 2, itemColor: '#fff176', itemDiv: 12 },
+  { name: 'Rückkehr',  duration: 0,  initialCount: 3, itemColor: '#ffd54f', itemDiv:  7 },
+  null,
+  null,
 ];
 
-// Items per maze scale with sqrt(area); divisors tune rarity
-const ITEM_DIVISOR = [10, 5];  // Spell 1 very rare, Spell 2 more frequent
+// Sprung spell: how far the camera zooms out at peak (0 = no zoom, 1 = full)
+const JUMP_ZOOM_OUT = 0.55;
 
 class Game {
   constructor() {
@@ -37,7 +45,11 @@ class Game {
     this._spells   = SPELL_DEFS.map(d =>
       d ? { ...d, count: d.initialCount, activeUntil: 0 } : null
     );
-    this._items    = [];
+    this._items        = [];
+    this._openedWall   = null;
+    this._teleportFlash = 0;
+    this._beacons      = [];
+    this._fogCanvas    = null;
 
     this._sliders = {
       cols: { input: document.getElementById('inp-cols'), display: document.getElementById('val-cols') },
@@ -85,12 +97,22 @@ class Game {
       const dir = KEY_DIR[e.code];
       if (dir) { e.preventDefault(); this._heldDirs.add(dir); return; }
       if (e.code.startsWith('Digit')) {
-        const d = parseInt(e.code[5], 10);
-        this._activateSpell(d === 0 ? 9 : d - 1);
+        const d   = parseInt(e.code[5], 10);
+        const idx = d === 0 ? 9 : d - 1;
+        if      (idx === 3) this._activateWallSpell();
+        else if (idx === 5) this._activateLightSpell();
+        else if (idx === 7) this._activateReturnSpell();
+        else                this._activateSpell(idx);
       }
     });
     window.addEventListener('keyup',  e => { const d = KEY_DIR[e.code]; if (d) this._heldDirs.delete(d); });
     window.addEventListener('blur',   () => this._heldDirs.clear());
+    window.addEventListener('keydown', e => {
+      if (e.code === 'Enter' && !this.overlay.classList.contains('hidden')) {
+        e.preventDefault();
+        this._startNew();
+      }
+    });
 
     new ResizeObserver(() => this._fitCanvas()).observe(this._wrap);
 
@@ -114,6 +136,119 @@ class Game {
     if (spell.activeUntil > performance.now()) return;
     spell.count--;
     spell.activeUntil = performance.now() + spell.duration * 1000;
+  }
+
+  // ── Pforte (Spell 4) — single wall removal ───────────────
+
+  _activateWallSpell() {
+    const spell = this._spells[3];
+    if (!spell || spell.count <= 0) return;
+    if (spell.activeUntil > performance.now()) return;   // already active
+
+    const { cell, cols, rows, walls } = this.maze;
+    const row = Math.floor(this.player._cy / cell);
+    const col = Math.floor(this.player._cx / cell);
+    const dir = this.player._facing;
+    if (row < 0 || row >= rows || col < 0 || col >= cols) return;
+    if (!walls[row][col][dir]) return;   // no wall here — don't consume charge
+
+    const OPPOSITE = { N: 'S', S: 'N', E: 'W', W: 'E' };
+    const DR       = { N: -1,  S: 1,   E: 0,   W: 0  };
+    const DC       = { N: 0,   S: 0,   E: 1,   W: -1 };
+    const nr = row + DR[dir];
+    const nc = col + DC[dir];
+
+    walls[row][col][dir] = false;
+    if (nr >= 0 && nr < rows && nc >= 0 && nc < cols)
+      walls[nr][nc][OPPOSITE[dir]] = false;
+
+    spell.count--;
+    spell.activeUntil = performance.now() + spell.duration * 1000;
+    this._openedWall  = { row, col, dir, nr, nc, opp: OPPOSITE[dir] };
+  }
+
+  _checkOpenedWall() {
+    if (!this._openedWall) return;
+    const spell = this._spells[3];
+    if (spell && spell.activeUntil > performance.now()) return;  // still ticking
+
+    const { walls, rows, cols } = this.maze;
+    const { row, col, dir, nr, nc, opp } = this._openedWall;
+    walls[row][col][dir] = true;
+    if (nr >= 0 && nr < rows && nc >= 0 && nc < cols)
+      walls[nr][nc][opp] = true;
+    this._openedWall = null;
+  }
+
+  _drawOpenedWall(ctx) {
+    if (!this._openedWall) return;
+    const { cell } = this.maze;
+    const W = Math.max(3, Math.round(cell * 0.10));
+    const s = cell - 2 * W;
+    const { row, col, dir } = this._openedWall;
+    const spell     = this._spells[3];
+    const remaining = spell ? Math.max(0, (spell.activeUntil - performance.now()) / 1000) : 0;
+    const pulse     = 0.55 + 0.35 * Math.sin(performance.now() / 130);
+
+    ctx.save();
+    ctx.globalAlpha = pulse * Math.min(1, remaining);
+    ctx.fillStyle   = '#ce93d8';
+    ctx.shadowColor = '#ce93d8';
+    ctx.shadowBlur  = 14;
+
+    if      (dir === 'N') ctx.fillRect(col * cell + W,          row * cell - W,       s,     2 * W);
+    else if (dir === 'S') ctx.fillRect(col * cell + W,    (row + 1) * cell - W,       s,     2 * W);
+    else if (dir === 'E') ctx.fillRect((col + 1) * cell - W,    row * cell + W,  2 * W,          s);
+    else if (dir === 'W') ctx.fillRect(col * cell - W,           row * cell + W,  2 * W,          s);
+
+    ctx.restore();
+  }
+
+  // ── Leuchtfeuer (Spell 6) — persistent beacon ───────────
+
+  _activateLightSpell() {
+    const spell = this._spells[5];
+    if (!spell || spell.count <= 0) return;
+    const { cx, cy } = { cx: this.player._cx, cy: this.player._cy };
+    if (this._beacons.some(b => Math.abs(b.cx - cx) < 4 && Math.abs(b.cy - cy) < 4)) return;
+    spell.count--;
+    spell.activeUntil = performance.now() + 350;  // brief flash in spell bar
+    this._beacons.push({ cx, cy });
+  }
+
+  _drawBeacons(ctx) {
+    if (!this._beacons.length) return;
+    const r   = Math.max(4, this.maze.cell * 0.12);
+    const now = performance.now();
+    for (const b of this._beacons) {
+      const flicker = 0.65 + 0.35 * Math.sin(now / 210 + b.cx * 0.013 + b.cy * 0.017);
+      ctx.save();
+      ctx.globalAlpha = flicker;
+      ctx.fillStyle   = '#ffab40';
+      ctx.shadowColor = '#ff6d00';
+      ctx.shadowBlur  = 18;
+      ctx.beginPath();
+      ctx.arc(b.cx, b.cy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // ── Rückkehr (Spell 8) — instant teleport to entrance ───
+
+  _activateReturnSpell() {
+    const spell = this._spells[7];
+    if (!spell || spell.count <= 0) return;
+
+    const { cell, cols, rows } = this.maze;
+    const mid = Math.floor(cols / 2);
+    this.player._cx     = (mid + 0.5) * cell;
+    this.player._cy     = (rows - 0.5) * cell;
+    this.player._facing = 'N';
+
+    spell.count--;
+    spell.activeUntil    = performance.now() + 400;  // brief flash indicator
+    this._teleportFlash  = performance.now();
   }
 
   _getSpellAlpha(index, fadeSecs) {
@@ -147,8 +282,10 @@ class Game {
 
     this._items = [];
     let idx = 0;
-    for (let si = 0; si < ITEM_DIVISOR.length; si++) {
-      const count = Math.max(1, Math.floor(side / ITEM_DIVISOR[si]));
+    for (let si = 0; si < SPELL_DEFS.length; si++) {
+      const def = SPELL_DEFS[si];
+      if (!def?.itemDiv) continue;
+      const count = Math.max(1, Math.floor(side / def.itemDiv));
       for (let n = 0; n < count && idx < available.length; n++, idx++) {
         this._items.push({ ...available[idx], spellIndex: si });
       }
@@ -182,6 +319,8 @@ class Game {
       const pulse = 0.65 + 0.35 * Math.sin(now / 450 + item.col * 1.9 + item.row * 2.7);
       const color = SPELL_DEFS[item.spellIndex]?.itemColor ?? '#ffffff';
 
+      const keyLabel = item.spellIndex < 9 ? String(item.spellIndex + 1) : '0';
+
       ctx.save();
       ctx.globalAlpha  = pulse;
       ctx.fillStyle    = color;
@@ -190,6 +329,13 @@ class Game {
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.fill();
+
+      ctx.shadowBlur   = 0;
+      ctx.fillStyle    = '#0d0d1a';
+      ctx.font         = `bold ${Math.max(6, Math.round(r * 1.1))}px "Segoe UI",system-ui,sans-serif`;
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(keyLabel, cx, cy);
       ctx.restore();
     }
   }
@@ -289,6 +435,9 @@ class Game {
     for (const spell of this._spells) {
       if (spell) spell.activeUntil = 0;
     }
+    this._openedWall = null;
+    this._beacons    = [];
+    this._fogCanvas  = null;
 
     this._fitCanvas();
 
@@ -342,8 +491,11 @@ class Game {
 
     if (!this._won) {
       this.timerEl.textContent = ((performance.now() - this._startT) / 1000).toFixed(1) + ' s';
+      const ghostSpell = this._spells[4];
+      this.player.phasing = !!(ghostSpell && ghostSpell.activeUntil > performance.now());
       this.player.update(this._heldDirs);
       this._checkItemPickup();
+      this._checkOpenedWall();
     }
 
     this._draw();
@@ -358,46 +510,129 @@ class Game {
     const px  = this.player._cx;
     const py  = this.player._cy;
 
+    // Spell 3 – Sprung: organic zoom-out via sin curve (fast → slow at peak → fast)
+    let zoom = 1;
+    const jumpSpell = this._spells[2];
+    if (jumpSpell && jumpSpell.activeUntil > 0) {
+      const remaining = (jumpSpell.activeUntil - performance.now()) / 1000;
+      if (remaining > 0) {
+        const progress = 1 - remaining / jumpSpell.duration;   // 0 → 1
+        zoom = 1 - JUMP_ZOOM_OUT * Math.sin(Math.PI * progress);
+      }
+    }
+
     ctx.fillStyle = `rgb(${FOG_COLOR})`;
     ctx.fillRect(0, 0, vw, vh);
 
     ctx.save();
-    ctx.translate(Math.round(vcx - px), Math.round(vcy - py));
+    if (zoom === 1) {
+      // Math.round prevents subpixel tile gaps at normal scale
+      ctx.translate(Math.round(vcx - px), Math.round(vcy - py));
+    } else {
+      ctx.translate(vcx, vcy);
+      ctx.scale(zoom, zoom);
+      ctx.translate(-px, -py);
+    }
     this.maze.draw(ctx);
+    this._drawBeacons(ctx);
+    this._drawOpenedWall(ctx);
     this._drawItems(ctx);
 
     const { fog, fade } = this._settings();
+    // During jump the screen fog circle covers more world pixels → scale radius
+    const fogRadius = (fog + fade) / zoom;
     const deadAlpha = this._getSpellAlpha(1, 3);
-    this.maze.drawDeadEnds(ctx, this.player.visitedCells, this.player.knownDeadCells, px, py, fog + fade, deadAlpha);
+    this.maze.drawDeadEnds(ctx, this.player.visitedCells, this.player.knownDeadCells, px, py, fogRadius, deadAlpha);
 
     let solutionAlpha = this._showSolution ? 0.75 : 0;
     solutionAlpha = Math.max(solutionAlpha, this._getSpellAlpha(0, 2) * 0.75);
     if (solutionAlpha > 0) this.maze.drawSolution(ctx, solutionAlpha);
 
+    ctx.restore();
+
+    // Player drawn in screen space so it stays full-size during Sprung zoom-out
+    ctx.save();
+    ctx.translate(vcx - px, vcy - py);
+    if (this.player.phasing) {
+      const pulse = 0.42 + 0.22 * Math.sin(performance.now() / 170);
+      ctx.globalAlpha = pulse;
+      ctx.shadowColor = '#90caf9';
+      ctx.shadowBlur  = 24;
+    }
     this.player.draw(ctx);
     ctx.restore();
 
-    this._drawFog(ctx, vcx, vcy);
+    // Orakel: fog fades to 0 when active, returns over last 1 s
+    const orakelAlpha = this._getSpellAlpha(6, 1);
+    this._drawFog(ctx, vcx, vcy, 1 - orakelAlpha);
+
+    // Rückkehr flash
+    if (this._teleportFlash > 0) {
+      const alpha = Math.max(0, 1 - (performance.now() - this._teleportFlash) / 350);
+      if (alpha > 0) {
+        ctx.save();
+        ctx.globalAlpha = alpha * 0.6;
+        ctx.fillStyle   = '#ffd54f';
+        ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        ctx.restore();
+      }
+    }
+
     this._drawSpellBar(ctx);
   }
 
-  _drawFog(ctx, cx, cy) {
+  _drawFog(ctx, cx, cy, fogMult = 1) {
+    if (fogMult <= 0) return;
     const { fog, fade } = this._settings();
     const vw = this.canvas.width;
     const vh = this.canvas.height;
 
-    const g = ctx.createRadialGradient(cx, cy, fog, cx, cy, fog + fade);
-    g.addColorStop(0, `rgba(${FOG_COLOR},0)`);
-    g.addColorStop(1, `rgba(${FOG_COLOR},1)`);
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, vw, vh);
+    // Offscreen canvas lets us punch multiple light holes via destination-out
+    if (!this._fogCanvas || this._fogCanvas.width !== vw || this._fogCanvas.height !== vh) {
+      if (!this._fogCanvas) this._fogCanvas = document.createElement('canvas');
+      this._fogCanvas.width  = vw;
+      this._fogCanvas.height = vh;
+    }
+    const fc = this._fogCanvas.getContext('2d');
+
+    // Solid fog base
+    fc.globalCompositeOperation = 'source-over';
+    fc.globalAlpha = 1;
+    fc.fillStyle   = `rgb(${FOG_COLOR})`;
+    fc.fillRect(0, 0, vw, vh);
+
+    // Cut transparent holes
+    fc.globalCompositeOperation = 'destination-out';
+
+    const punchLight = (lx, ly, r, f) => {
+      fc.fillStyle = 'black';
+      fc.beginPath();
+      fc.arc(lx, ly, r, 0, Math.PI * 2);
+      fc.fill();
+      const g = fc.createRadialGradient(lx, ly, r, lx, ly, r + f);
+      g.addColorStop(0, 'rgba(0,0,0,1)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      fc.fillStyle = g;
+      fc.fillRect(0, 0, vw, vh);
+    };
+
+    punchLight(cx, cy, fog, fade);
+
+    if (this._beacons.length > 0) {
+      const px  = this.player._cx;
+      const py  = this.player._cy;
+      const vcx = vw / 2;
+      const vcy = vh / 2;
+      const br  = Math.max(40, fog * 0.75);
+      const bf  = Math.min(fade, 55);
+      for (const b of this._beacons) {
+        punchLight(vcx + (b.cx - px), vcy + (b.cy - py), br, bf);
+      }
+    }
 
     ctx.save();
-    ctx.fillStyle = `rgb(${FOG_COLOR})`;
-    ctx.beginPath();
-    ctx.rect(0, 0, vw, vh);
-    ctx.arc(cx, cy, fog + fade, 0, Math.PI * 2, true);
-    ctx.fill('evenodd');
+    ctx.globalAlpha = fogMult;
+    ctx.drawImage(this._fogCanvas, 0, 0);
     ctx.restore();
   }
 }

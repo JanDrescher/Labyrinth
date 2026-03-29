@@ -24,8 +24,8 @@ Labyrinth/
 │   └── style.css      Layout, Themes, Slider-Styling
 └── js/
     ├── maze.js        Labyrinth-Generator, Renderer, BFS-Löser, Dead-End-Erkennung
-    ├── player.js      Spieler: Bewegung, Kollision, Darstellung, visitedCells
-    └── game.js        Game-Loop, Kamera, Fog-of-War, Spells, Items, UI-Steuerung
+    ├── player.js      Spieler: Bewegung, Kollision, Darstellung, visitedCells, phasing
+    └── game.js        Game-Loop, Kamera, Fog-of-War, Spells, Items, Beacons, UI
 ```
 
 ---
@@ -51,7 +51,7 @@ Struktur der Seite (von oben nach unten):
 #hud           Timer, Punkte, Level, Buttons (Buttons standardmäßig versteckt)
 #canvas-wrap   Spielfeld-Container (flex, nimmt restlichen Raum ein)
   <canvas>     Spielfeld
-  #overlay     Start-/Gewinn-Overlay
+  #overlay     Start-/Gewinn-Overlay (Enter startet nächstes Labyrinth)
 <p#hint>       Tastatur-Hinweis
 ```
 
@@ -74,7 +74,7 @@ Zeit  [0.0 s]  Punkte [0]  Level [1]  [Neues Labyrinth*]  [Lösung zeigen*]
 ```
 `*` standardmäßig versteckt, via qwert einblendbar.
 
-- **Punkte:** startet bei 0, wächst pro Level (s. Punktevergabe)
+- **Punkte:** +10 Basis, +50 Zeitbonus pro gelöstem Labyrinth
 - **Level:** startet bei 1, +1 bei jedem gelösten Labyrinth
 
 ---
@@ -84,90 +84,45 @@ Zeit  [0.0 s]  Punkte [0]  Level [1]  [Neues Labyrinth*]  [Lösung zeigen*]
 ### Konstruktor `new Maze(cols, rows, cell)`
 
 - Erstellt `walls[r][c] = { N, E, S, W }` — `true` = Wand vorhanden
-- Alle Wände starten als `true`
-- Ruft `_generate()` auf
-- Öffnet danach Eingang und Ausgang:
-  - **Eingang:** `walls[rows-1][mid].S = false` (unten Mitte, Südwand)
-  - **Ausgang:** `walls[0][mid].N = false` (oben Mitte, Nordwand)
-  - `mid = Math.floor(cols / 2)`
-  - **Hinweis:** Ungerade Spaltenanzahl (z.B. 21) ergibt symmetrisches Labyrinth
+- **Hinweis:** Ungerade Spaltenanzahl (z.B. 21) → symmetrisches Labyrinth (Eingang/Ausgang mittig)
+- `mid = Math.floor(cols / 2)`
 
 ### `_generate()` — Recursive Backtracker (DFS)
 
-- Startet bei Zelle `(0, 0)`
-- Stack-basierter DFS: wählt zufälligen unbesuchten Nachbarn, entfernt Trennwand, geht weiter
-- Erzeugt ein **perfektes Labyrinth** (keine Schleifen, jede Zelle genau einmal erreichbar)
+Stack-basierter DFS, erzeugt **perfektes Labyrinth** (keine Schleifen).
 
 ### `draw(ctx)` — Thick-Wall-Renderer
 
-Wandstärke `W = Math.max(3, Math.round(cell * 0.10))` pro Seite, Gangbreite `s = cell - 2*W`.
-
-1. Gesamte Maze-Fläche mit Wandmuster füllen (via `_wallPattern`)
-2. Gänge als Bodenflächen freischneiden (mit `_floorPattern`)
-3. Eingangs-/Ausgangsöffnung an Maze-Kante freischneiden
-4. **Eingangs-Marker** (grün `#00c853`): 3px-Streifen
-5. **Ausgangs-Marker** (rot `#d50000`): 3px-Streifen
-
-### `_makeWallPattern(ctx)` — Bruchstein-Wandmuster
-
-Erzeugt einmalig ein `CanvasPattern` aus Off-screen-Canvas:
-- **Mauerverband:** Stein `14×8`px, drei dunkle Lila-Grautöne + Highlight/Shadow/Riss
-- Fugenfarbe: `#14121e`, horizontale Fuge mit Lila-Glimmer
-
-### `_makeFloorPattern(ctx)` — Boden-Ziegelmuster
-
-Erzeugt einmalig ein `CanvasPattern` aus `30×30`px Off-screen-Canvas:
-- **Mauerverband:** Ziegel `30×13`px, drei Ziegelfarben + Highlight/Shadow
-- Fugenfarbe: `#57524e`
-
-### `solution()` — BFS-Kürzester-Pfad (gecacht)
-
-- BFS von Eingang `(rows-1, mid)` zu Ausgang `(0, mid)`
-- Ergebnis wird in `this._solution` gecacht
+Wandstärke `W = Math.max(3, Math.round(cell * 0.10))`, Gangbreite `s = cell - 2*W`.
+Wandmuster (`_makeWallPattern`) und Bodenmuster (`_makeFloorPattern`) als gecachte `CanvasPattern`.
 
 ### `drawSolution(ctx, alpha = 0.75)`
 
-- Zeichnet roten Lösungspfad (`#e53935`), alpha-steuerbar (für Spell-Fade)
+BFS-Kürzester-Pfad, rote Linie, alpha-steuerbar.
 
 ### `drawDeadEnds(ctx, visitedCells, knownDeadCells, playerCx, playerCy, fogRadius, alpha = 1)`
 
 - BFS läuft **immer** (unabhängig von alpha) → aktualisiert `knownDeadCells`
-- Zeichnet bekannte Sackgassen mit `rgba(18,14,32,0.78)` multipliziert mit `alpha`
-- alpha = 0 → kein Zeichnen, aber BFS läuft weiter
-
-### `canMove(r, c, dir)`
-
-- Gibt `true` zurück wenn Wand in Richtung `dir` bei `(r,c)` nicht vorhanden
+- Zeichnet Sackgassen mit `rgba(18,14,32,0.78) × alpha`
 
 ---
 
 ## js/player.js — Klasse `Player`
 
-### Konstruktor
-
 ```
-_cx, _cy        Pixelposition des Mittelpunkts (float)
+_cx, _cy        Pixelposition (float)
 _speed          3 px/Frame
-_facing         'N' | 'S' | 'E' | 'W' — letzte Bewegungsrichtung, initial 'N'
-onGoal          Callback, wird einmal gefeuert wenn Spieler gewinnt
-_done           true nach Sieg → update() tut nichts mehr
-visitedCells    Set<number> — alle betretenen Zellen (Key: row*cols+col)
-knownDeadCells  Set<number> — einmal als Sackgasse erkannte Zellen
+_facing         'N'|'S'|'E'|'W'
+phasing         boolean — wenn true, werden Wandkollisionen ignoriert (Geist-Spell)
+visitedCells    Set<number> — betretene Zellen (row*cols+col)
+knownDeadCells  Set<number> — erkannte Sackgassen
 ```
 
-**Startposition:** Mitte der Eingangs-Zelle = `((mid + 0.5) * cell, (rows - 0.5) * cell)`
+**Kollision:** AABB, Hitbox `hw = cell/2 - 1`. Bei `phasing = true` werden interne Wände ignoriert; Südgrenze (Eingang) bleibt immer aktiv.
 
-### `update(heldDirs)` — Frame-Update
+**Startposition:** `((mid + 0.5) * cell, (rows - 0.5) * cell)`
 
-- `heldDirs`: Set aus game.js, per Tastatur befüllt
-- Kollisionssystem (AABB), Hitbox: Halbbreite `hw = cell/2 - 1`
-- **Siegbedingung:** `_cy < 0`
-
-### `draw(ctx)` — Wizard-Sprite
-
-Radius `r = Math.max(4, cell * 0.30)`:
-- Spitzer Hut (`#311b92`), Robe (`#6a1b9a`) + Glanz-Gradient
-- Goldene Sterne (`#ffd740`), Augen in Blickrichtung
+**Wizard-Sprite:** Spitzer Hut, Robe mit Glanz, Sterne, Augen in Blickrichtung.
 
 ---
 
@@ -175,129 +130,121 @@ Radius `r = Math.max(4, cell * 0.30)`:
 
 ### Spell-System
 
-```js
-const SPELL_DEFS = [
-  { name: 'Pfad',      duration: 5,  initialCount: 2, itemColor: '#4dd0e1' },
-  { name: 'Sackgasse', duration: 15, initialCount: 3, itemColor: '#ffb300' },
-  null, null, null, null, null, null, null, null,
-]
-```
+`SPELL_DEFS` — 10 Slots (Index 0–9 = Taste 1–0). Jeder Eintrag enthält:
+`name`, `duration` (s), `initialCount`, `itemColor`, `itemDiv` (Item-Seltenheit).
 
-- 10 Spell-Slots, Tasten **1–0**
-- Counts werden **nicht** zwischen Leveln zurückgesetzt
-- `activeUntil` wird bei `_startNew()` zurückgesetzt (laufende Effekte abbrechen)
+| Slot | Taste | Name        | Dauer | Start | itemDiv | Beschreibung |
+|------|-------|-------------|-------|-------|---------|--------------|
+| 0    | 1     | Pfad        | 5 s   | 2     | 10      | Lösungspfad anzeigen, Fade ab 2 s |
+| 1    | 2     | Sackgasse   | 15 s  | 3     | 5       | Sackgassen ausgrauen, Fade ab 3 s |
+| 2    | 3     | Sprung      | 5 s   | 2     | 8       | Kamera zoomt organisch raus (sin-Kurve) |
+| 3    | 4     | Pforte      | 5 s   | 2     | 9       | Eine Wand in Blickrichtung öffnen |
+| 4    | 5     | Geist       | 6 s   | 2     | 9       | Spieler kann alle Wände durchqueren |
+| 5    | 6     | Leuchtfeuer | —     | 3     | 6       | Dauerhafter Leuchtpunkt an aktueller Position |
+| 6    | 7     | Orakel      | 4 s   | 2     | 12      | Fog komplett entfernen, Fade zurück in letzter Sekunde |
+| 7    | 8     | Rückkehr    | —     | 3     | 7       | Sofort-Teleport zum Eingang |
+| 8    | —     | (leer)      | —     | —     | —       | — |
+| 9    | —     | (leer)      | —     | —     | —       | — |
 
-**Spell 1 – Pfad:**
-- 5 Sekunden, Fade ab Sekunde 2
-- Überlagert sich additiv mit "Lösung zeigen"-Button
-
-**Spell 2 – Sackgasse:**
-- 15 Sekunden, Fade ab Sekunde 3
-- Zeigt Sackgassen-Ausgrauung (BFS läuft immer im Hintergrund)
+**Spell-Counts** werden nicht zwischen Leveln zurückgesetzt.
+**Sonder-Routing** in keydown: Index 3 → `_activateWallSpell()`, Index 5 → `_activateLightSpell()`, Index 7 → `_activateReturnSpell()`.
 
 ### Item-System
 
-Items werden pro Labyrinth zufällig platziert; Aufnahme durch Drüberlaufen (+1 Spell-Ladung).
-
-**Menge pro Labyrinth** (`Math.floor(√(cols×rows) / Divisor)`):
-
-| Spell | Divisor | 21×21 | 41×41 | 61×61 |
-|-------|---------|-------|-------|-------|
-| Pfad (selten) | 10 | 2 | 4 | 6 |
-| Sackgasse     | 5  | 4 | 8 | 12 |
-
-Items sind pulsierende Leuchtpunkte (Cyan / Bernstein), durch Fog-of-War verdeckt.
+Items pro Labyrinth: `Math.max(1, floor(√(cols×rows) / itemDiv))` pro Spell.
+Aufnahme durch Drüberlaufen → +1 Ladung. Pulsierende Leuchtpunkte mit Spell-Nummer.
 
 ### Punktevergabe
 
-- **+10 Punkte** bei jedem gelösten Labyrinth
-- **+50 Punkte Zeitbonus** wenn `Zeit < (cols−1)×(rows−1)/2` Sekunden
+- **+10** immer beim Lösen
+- **+50 Zeitbonus** wenn `Zeit < (cols−1)×(rows−1)/2` Sekunden
 - Overlay zeigt `(+10)` bzw. `(+10 +50 Zeitbonus)` in grün
 
 ### Level-Progression
 
-Bei jedem gelösten Labyrinth:
-- Level +1
-- Spalten +2, Zeilen +2 (max 80)
-- Sichtweite +5 px (max 400)
-- Spell-Counts bleiben erhalten
+Bei jedem gelösten Labyrinth: Level +1, Spalten/Zeilen +2 (max 80), Sichtweite +5 px (max 400).
 
 ### Admin-UI
 
 Tastensequenz **q→w→e→r→t** togglet: Settings-Panel + "Neues Labyrinth" + "Lösung zeigen".
-Standardmäßig versteckt beim Laden.
+Standard: versteckt. **Enter** startet nächstes Labyrinth wenn Overlay sichtbar.
 
-### Kamera-System
+### Kamera & Zoom
 
-```javascript
-ctx.translate(Math.round(vcx - player._cx), Math.round(vcy - player._cy))
-```
-`Math.round()` verhindert Subpixel-Artefakte.
+Normale Ansicht: `ctx.translate(Math.round(vcx-px), Math.round(vcy-py))`
+Sprung-Spell: `ctx.translate(vcx,vcy); ctx.scale(zoom,zoom); ctx.translate(-px,-py)`
+Zoom-Kurve: `zoom = 1 − 0.55 × sin(π × progress)` (0→1 über 5s).
+
+**Spieler wird außerhalb des Zoom-Transforms gezeichnet** → bleibt bei Sprung immer gleich groß.
+
+### Fog-of-War (`_drawFog`)
+
+Offscreen-Canvas-Ansatz mit `destination-out` für mehrere Lichtquellen:
+1. Offscreen-Canvas mit Fog-Farbe füllen
+2. Per `punchLight()` transparente Löcher einschneiden (Spieler + Beacons)
+3. Ergebnis mit `fogMult` (0–1) auf Hauptcanvas zeichnen
+
+`fogMult = 1 − orakelAlpha` → Orakel-Spell blendet Fog aus.
+
+### Beacon-System (Leuchtfeuer)
+
+- `this._beacons = [{ cx, cy }, ...]` — Weltkoordinaten
+- Reset bei `_startNew()`
+- Lichtradius: `max(40, fog × 0.75)`, Fade: `min(fade, 55)`
+- Visuell: flackernder oranger Orb in Weltspace
+
+⚠️ **Bekannter Bug:** Bei Spell 3 (Sprung / Zoom-out) skalieren die Beacons nicht korrekt mit. Die Beacon-Lichtkreise bleiben in unveränderter Größe und Position relativ zum Spieler-Sichtkreis, statt mit dem Zoom zu schrumpfen. Ursache: `_drawFog` rechnet Beacon-Screenkoordinaten ohne Zoom-Faktor um.
 
 ### Render-Reihenfolge pro Frame
 
 ```
-1. canvas fill dark
-2. ctx.save / translate (world space)
-3.   maze.draw(ctx)
-4.   game._drawItems(ctx)
-5.   maze.drawDeadEnds(ctx, ..., deadAlpha)
-6.   maze.drawSolution(ctx, solutionAlpha)   ← nur wenn alpha > 0
-7.   player.draw(ctx)
-8. ctx.restore
-9. _drawFog(ctx)
-10. _drawSpellBar(ctx)                        ← screen space, über Fog
+1.  canvas fill dark
+2.  ctx.save / translate+scale (world space, zoom)
+3.    maze.draw(ctx)
+4.    game._drawBeacons(ctx)
+5.    game._drawOpenedWall(ctx)
+6.    game._drawItems(ctx)
+7.    maze.drawDeadEnds(ctx, ..., deadAlpha)
+8.    maze.drawSolution(ctx, solutionAlpha)
+9.    player.draw(ctx)  ← NICHT hier, sondern in screen space
+10. ctx.restore
+11. screen-space player draw (unabhängig vom Zoom)
+12. _drawFog(ctx, fogMult)
+13. Rückkehr-Flash
+14. _drawSpellBar(ctx)
 ```
 
 ### Spell-Leiste (Canvas, screen space)
 
-- 10 Slots à 52×52 px, Abstand 5 px, zentriert, y = 5 px vom Canvas-Rand
-- Pro Slot: Countdown oben-links, Taste + Spell-Name mittig, Ladungen unten-rechts
-- Aktiver Slot: blauer Rahmen + Glow
-- Erschöpfter Slot: opacity 0.38
-
-### Fog-of-War
-
-Drei-Schichten-System:
-1. Dark fill canvas
-2. Radialer Gradient (transparent → opaque) ab Fog-Radius
-3. Evenodd-Pfad für harte Außenkante
+- 10 Slots à 52×52 px, GAP 5 px, zentriert, y = GAP vom Canvas-Rand
+- Slot: Countdown oben-links, Taste+Name mittig, Ladungen unten-rechts
+- Aktiv: blauer Rahmen + Glow; Erschöpft: opacity 0.38
 
 ---
 
 ## css/style.css
 
-### Layout
-
 ```
-body (flex column, height 100vh, overflow hidden)
-├── h1              flex-shrink: 0
-├── #settings       flex-shrink: 0  ← standardmäßig hidden
-├── #hud            flex-shrink: 0
-├── #canvas-wrap    flex: 1, min-height: 0
-│   └── canvas      Dimensionen per JS
-└── #hint           flex-shrink: 0
+body (flex column, 100vh)
+├── h1, #settings (hidden), #hud
+├── #canvas-wrap (flex:1)
+└── #hint
 ```
 
-- `.hidden { display: none !important; }` — global verwendbar
-- `#score`, `#level`: `font-size: 1.05rem`, weiß, tabular-nums
-- `#timer`: `font-size: 0.95rem`, weiß, tabular-nums
+`.hidden { display: none !important; }`
+`#score`, `#level`: `1.05rem`, weiß, tabular-nums.
 
 ---
 
 ## Spielablauf
 
-1. Seite laden → Admin-UI versteckt, Overlay mit "Finde den Ausgang!"
-2. **Start** → Labyrinth 21×21 generiert, Timer startet, Items platziert
-3. Spieler startet in **Eingangs-Zelle (unten Mitte)**
-4. Ziel: **Ausgangs-Zelle (oben Mitte)** erreichen (`_cy < 0`)
-5. Sieg → Punkte/Level aktualisiert, nächstes Labyrinth +2×2 Felder
+1. Laden → Overlay "Finde den Ausgang!" — **Enter** oder Start-Button
+2. 21×21 Labyrinth, Spieler unten Mitte, Items platziert
+3. Ziel: oben Mitte durch Nordöffnung (`_cy < 0`) → Sieg
+4. Punkte + Level + nächstes Labyrinth wächst um 2×2
 
 ---
 
-## Bekannte Grenzen / Designentscheidungen
+## Bekannte Bugs / Offene Punkte
 
-- Maze-Generator startet DFS immer bei `(0,0)` → statistisch längere Wege oben-links
-- Spielgeschwindigkeit fix (`3 px/Frame`) — nicht skaliert mit Gangbreite
-- Items erscheinen in zufälligen Zellen (kein Mindestabstand zum Start)
-- Maximale Maze-Größe: 80×80 (Slider-Max)
+- **Beacon + Sprung:** Leuchtfeuer-Kreise skalieren nicht mit dem Zoom-Out des Sprung-Spells (Lichtkreise bleiben gleich groß statt kleiner zu werden). Fix ausstehend.
