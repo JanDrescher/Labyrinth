@@ -51,6 +51,25 @@ class Game {
     this._beacons      = [];
     this._fogCanvas    = null;
 
+    // Build spell-bar DOM slots
+    this._spellBarEl   = document.getElementById('spell-bar');
+    this._spellSlotEls = [];
+    for (let i = 0; i < 10; i++) {
+      const slot  = document.createElement('div');
+      const spell = this._spells[i];
+      slot.className = 'spell-slot' + (spell ? '' : ' empty');
+      if (spell) {
+        const keyLabel = i < 9 ? String(i + 1) : '0';
+        slot.innerHTML =
+          `<span class="sp-countdown"></span>` +
+          `<span class="sp-key">${keyLabel}</span>` +
+          `<span class="sp-name">${spell.name}</span>` +
+          `<span class="sp-charges">${spell.count}</span>`;
+      }
+      this._spellBarEl.appendChild(slot);
+      this._spellSlotEls.push(slot);
+    }
+
     this._sliders = {
       cols: { input: document.getElementById('inp-cols'), display: document.getElementById('val-cols') },
       rows: { input: document.getElementById('inp-rows'), display: document.getElementById('val-rows') },
@@ -340,68 +359,24 @@ class Game {
     }
   }
 
-  // ── Spell bar (canvas, screen space) ────────────────────
+  // ── Spell bar (HTML, above canvas) ──────────────────────
 
-  _drawSpellBar(ctx) {
-    const SLOT = 52, GAP = 5, N = 10;
-    const totalW = N * SLOT + (N - 1) * GAP;
-    const x0 = Math.round((this.canvas.width - totalW) / 2);
-    const y0 = GAP;
+  _updateSpellBar() {
     const now = performance.now();
+    for (let i = 0; i < 10; i++) {
+      const slot  = this._spellSlotEls[i];
+      const spell = this._spells[i];
+      if (!spell) continue;
 
-    for (let i = 0; i < N; i++) {
-      const spell     = this._spells[i];
-      const sx        = x0 + i * (SLOT + GAP);
-      const sy        = y0;
-      const remaining = spell && spell.activeUntil > now
-        ? (spell.activeUntil - now) / 1000 : 0;
+      const remaining = spell.activeUntil > now ? (spell.activeUntil - now) / 1000 : 0;
       const active    = remaining > 0;
-      const depleted  = spell && spell.count === 0 && !active;
-      const baseAlpha = !spell ? 0.22 : depleted ? 0.38 : 1;
+      const depleted  = spell.count === 0 && !active;
 
-      ctx.save();
-      ctx.globalAlpha = baseAlpha;
+      slot.classList.toggle('active',   active);
+      slot.classList.toggle('depleted', depleted);
 
-      ctx.fillStyle = '#1a1a2e';
-      ctx.fillRect(sx, sy, SLOT, SLOT);
-
-      if (active) { ctx.shadowColor = 'rgba(21,101,192,0.75)'; ctx.shadowBlur = 14; }
-      ctx.strokeStyle = active ? '#1565c0' : '#2e3060';
-      ctx.lineWidth   = active ? 1.5 : 1;
-      ctx.strokeRect(sx + 0.5, sy + 0.5, SLOT - 1, SLOT - 1);
-      ctx.shadowBlur  = 0;
-
-      if (spell) {
-        const keyLabel = i < 9 ? String(i + 1) : '0';
-
-        ctx.fillStyle    = active ? '#e0e0e0' : '#7986cb';
-        ctx.font         = 'bold 17px "Segoe UI",system-ui,sans-serif';
-        ctx.textAlign    = 'center';
-        ctx.textBaseline = 'alphabetic';
-        ctx.fillText(keyLabel, sx + SLOT / 2, sy + SLOT / 2 - 1);
-
-        ctx.globalAlpha = baseAlpha * 0.65;
-        ctx.font        = '8px "Segoe UI",system-ui,sans-serif';
-        ctx.fillStyle   = '#7986cb';
-        ctx.fillText(spell.name.toUpperCase(), sx + SLOT / 2, sy + SLOT / 2 + 11);
-        ctx.globalAlpha = baseAlpha;
-
-        if (active) {
-          ctx.fillStyle    = '#ffffff';
-          ctx.font         = 'bold 10px "Segoe UI",system-ui,sans-serif';
-          ctx.textAlign    = 'left';
-          ctx.textBaseline = 'top';
-          ctx.fillText(remaining.toFixed(1), sx + 4, sy + 3);
-        }
-
-        ctx.fillStyle    = active ? '#e0e0e0' : '#7986cb';
-        ctx.font         = '10px "Segoe UI",system-ui,sans-serif';
-        ctx.textAlign    = 'right';
-        ctx.textBaseline = 'bottom';
-        ctx.fillText(String(spell.count), sx + SLOT - 4, sy + SLOT - 3);
-      }
-
-      ctx.restore();
+      slot.querySelector('.sp-countdown').textContent = active ? remaining.toFixed(1) : '';
+      slot.querySelector('.sp-charges').textContent   = String(spell.count);
     }
   }
 
@@ -444,7 +419,8 @@ class Game {
     const { cols, rows, cell } = this._settings();
     this.maze   = new Maze(cols, rows, cell);
     this.player = new Player(this.maze);
-    this.player.onGoal = () => this._win();
+    this.player.onGoal  = () => this._win();
+    this.player.robeColor = `hsl(${Math.floor(Math.random() * 360)},65%,42%)`;
 
     this._placeItems();
 
@@ -564,7 +540,7 @@ class Game {
 
     // Orakel: fog fades to 0 when active, returns over last 1 s
     const orakelAlpha = this._getSpellAlpha(6, 1);
-    this._drawFog(ctx, vcx, vcy, 1 - orakelAlpha);
+    this._drawFog(ctx, vcx, vcy, 1 - orakelAlpha, zoom);
 
     // Rückkehr flash
     if (this._teleportFlash > 0) {
@@ -578,10 +554,10 @@ class Game {
       }
     }
 
-    this._drawSpellBar(ctx);
+    this._updateSpellBar();
   }
 
-  _drawFog(ctx, cx, cy, fogMult = 1) {
+  _drawFog(ctx, cx, cy, fogMult = 1, zoom = 1) {
     if (fogMult <= 0) return;
     const { fog, fade } = this._settings();
     const vw = this.canvas.width;
@@ -626,7 +602,7 @@ class Game {
       const br  = Math.max(40, fog * 0.75);
       const bf  = Math.min(fade, 55);
       for (const b of this._beacons) {
-        punchLight(vcx + (b.cx - px), vcy + (b.cy - py), br, bf);
+        punchLight(vcx + (b.cx - px) * zoom, vcy + (b.cy - py) * zoom, br * zoom, bf * zoom);
       }
     }
 
@@ -637,4 +613,4 @@ class Game {
   }
 }
 
-window.addEventListener('DOMContentLoaded', () => new Game());
+window.addEventListener('DOMContentLoaded', () => { window._game = new Game(); });

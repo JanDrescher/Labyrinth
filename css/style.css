@@ -128,6 +128,76 @@ input[type="range"]:hover::-webkit-slider-thumb { background: #1e88e5; }
   text-align: right;
 }
 
+/* ── Spell bar ───────────────────────────────────────── */
+
+#spell-bar {
+  flex-shrink: 0;
+  display: flex;
+  gap: 5px;
+  justify-content: center;
+  padding-bottom: 6px;
+}
+
+.spell-slot {
+  width: 52px;
+  height: 52px;
+  background: #1a1a2e;
+  border: 1px solid #2e3060;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+.spell-slot.active {
+  border: 1.5px solid #1565c0;
+  box-shadow: 0 0 14px rgba(21, 101, 192, 0.75);
+}
+
+.spell-slot.depleted { opacity: 0.38; }
+.spell-slot.empty    { opacity: 0.22; }
+
+.spell-slot .sp-countdown {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  font-size: 10px;
+  font-weight: bold;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+  min-width: 2.5ch;
+}
+
+.spell-slot .sp-key {
+  font-size: 17px;
+  font-weight: bold;
+  color: #7986cb;
+  line-height: 1;
+  margin-bottom: 2px;
+}
+
+.spell-slot.active .sp-key { color: #e0e0e0; }
+
+.spell-slot .sp-name {
+  font-size: 8px;
+  color: #7986cb;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+.spell-slot .sp-charges {
+  position: absolute;
+  bottom: 3px;
+  right: 4px;
+  font-size: 10px;
+  color: #7986cb;
+  font-variant-numeric: tabular-nums;
+}
+
+.spell-slot.active .sp-charges { color: #e0e0e0; }
+
 /* ── Canvas wrapper ──────────────────────────────────── */
 
 #canvas-wrap {
@@ -137,6 +207,7 @@ input[type="range"]:hover::-webkit-slider-thumb { background: #1e88e5; }
   width: 90vw;
   position: relative;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   border: 2px solid var(--surface);
@@ -147,6 +218,7 @@ input[type="range"]:hover::-webkit-slider-thumb { background: #1e88e5; }
 #maze-canvas {
   display: block;
   image-rendering: pixelated;
+
   /* dimensions are set via JS – no CSS size override */
 }
 

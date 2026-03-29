@@ -1,6 +1,6 @@
 # MageMaze – Projektdokumentation
 
-**Stand:** 2026-03-29
+**Stand:** 2026-03-29 (aktualisiert)
 **Pfad:** `/home/admin/Labyrinth/` — Git-Repo, Entwicklung und Live-Version (Apache zeigt direkt hierher)
 **Erreichbar unter:** `http://localhost:4000` — Apache-VirtualHost, startet automatisch mit dem System.
 **Online (GitHub Pages):** `https://JanDrescher.github.io/Labyrinth/` — wird automatisch aktualisiert bei jedem Push auf `main`.
@@ -113,6 +113,9 @@ BFS-Kürzester-Pfad, rote Linie, alpha-steuerbar.
 _cx, _cy        Pixelposition (float)
 _speed          3 px/Frame
 _facing         'N'|'S'|'E'|'W'
+_animFrame      0–3 — aktueller Walk-Frame
+_animT          Timestamp letzter Frame-Wechsel
+_moving         boolean — ob Tasten gedrückt sind
 phasing         boolean — wenn true, werden Wandkollisionen ignoriert (Geist-Spell)
 visitedCells    Set<number> — betretene Zellen (row*cols+col)
 knownDeadCells  Set<number> — erkannte Sackgassen
@@ -122,7 +125,10 @@ knownDeadCells  Set<number> — erkannte Sackgassen
 
 **Startposition:** `((mid + 0.5) * cell, (rows - 0.5) * cell)`
 
-**Wizard-Sprite:** Spitzer Hut, Robe mit Glanz, Sterne, Augen in Blickrichtung.
+**Sprite:** Vier separate Dateien mit je 4 Walk-Frames horizontal, transparenter Hintergrund:
+- `img/mage-s.png` (1945×528), `img/mage-n.png` (1945×528), `img/mage-w.png` (1945×528), `img/mage-e.png` (1456×396)
+
+Frame-Wechsel alle 150 ms bei Bewegung, Frame 0 im Stand. Gezeichnet in Screengröße `cell × 0.80`. Keine Rotation — jede Datei zeigt die native Blickrichtung. Robe-Farbe per HSL-Hue-Substitution (`robeColor`-Property, hex oder hsl-String); zufälliger Farbton bei jedem neuen Labyrinth.
 
 ---
 
@@ -193,7 +199,6 @@ Offscreen-Canvas-Ansatz mit `destination-out` für mehrere Lichtquellen:
 - Lichtradius: `max(40, fog × 0.75)`, Fade: `min(fade, 55)`
 - Visuell: flackernder oranger Orb in Weltspace
 
-⚠️ **Bekannter Bug:** Bei Spell 3 (Sprung / Zoom-out) skalieren die Beacons nicht korrekt mit. Die Beacon-Lichtkreise bleiben in unveränderter Größe und Position relativ zum Spieler-Sichtkreis, statt mit dem Zoom zu schrumpfen. Ursache: `_drawFog` rechnet Beacon-Screenkoordinaten ohne Zoom-Faktor um.
 
 ### Render-Reihenfolge pro Frame
 
@@ -211,14 +216,15 @@ Offscreen-Canvas-Ansatz mit `destination-out` für mehrere Lichtquellen:
 11. screen-space player draw (unabhängig vom Zoom)
 12. _drawFog(ctx, fogMult)
 13. Rückkehr-Flash
-14. _drawSpellBar(ctx)
+14. _updateSpellBar()
 ```
 
-### Spell-Leiste (Canvas, screen space)
+### Spell-Leiste (HTML, über Canvas)
 
-- 10 Slots à 52×52 px, GAP 5 px, zentriert, y = GAP vom Canvas-Rand
+- HTML-`<div id="spell-bar">` innerhalb `#canvas-wrap`, oberhalb des Canvas
+- 10 Slots à 52×52 px, GAP 5 px, zentriert, `padding-bottom: 6px`
 - Slot: Countdown oben-links, Taste+Name mittig, Ladungen unten-rechts
-- Aktiv: blauer Rahmen + Glow; Erschöpft: opacity 0.38
+- Aktiv: blauer Rahmen + Glow (CSS-Klasse `.active`); Erschöpft: opacity 0.38 (`.depleted`)
 
 ---
 
@@ -245,6 +251,12 @@ body (flex column, 100vh)
 
 ---
 
-## Bekannte Bugs / Offene Punkte
+## Nächstes Feature
 
-- **Beacon + Sprung:** Leuchtfeuer-Kreise skalieren nicht mit dem Zoom-Out des Sprung-Spells (Lichtkreise bleiben gleich groß statt kleiner zu werden). Fix ausstehend.
+**Mobile-Optimierung:** Touch-Steuerung und responsive Darstellung für Smartphones und Tablets.
+- Virtuelle Steuerung (D-Pad oder Swipe)
+- Spell-Leiste touch-freundlich (größere Tap-Flächen)
+- Viewport/Canvas-Skalierung für kleine Bildschirme
+
+---
+
