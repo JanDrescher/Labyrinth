@@ -1,5 +1,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+.hidden { display: none !important; }
+
 :root {
   --bg:      #0d0d1a;
   --surface: #1a1a2e;
@@ -108,6 +110,22 @@ input[type="range"]:hover::-webkit-slider-thumb { background: #1e88e5; }
   font-size: .78rem;
   color: var(--muted);
   opacity: .8;
+}
+
+#score {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.05rem;
+  color: var(--text);
+  min-width: 4ch;
+  text-align: right;
+}
+
+#level {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.05rem;
+  color: var(--text);
+  min-width: 2ch;
+  text-align: right;
 }
 
 /* ── Canvas wrapper ──────────────────────────────────── */

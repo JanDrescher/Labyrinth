@@ -3,24 +3,24 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Labyrinth</title>
+  <title>MageMaze</title>
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
 
-  <h1>Labyrinth</h1>
+  <h1>MageMaze</h1>
 
   <!-- Settings panel -->
-  <div id="settings">
+  <div id="settings" class="hidden">
     <label class="setting">
       <span class="setting-label">Spalten</span>
-      <input id="inp-cols" type="range" min="5" max="80" value="20" />
-      <span class="setting-val" id="val-cols">20</span>
+      <input id="inp-cols" type="range" min="5" max="80" value="21" />
+      <span class="setting-val" id="val-cols">21</span>
     </label>
     <label class="setting">
       <span class="setting-label">Zeilen</span>
-      <input id="inp-rows" type="range" min="5" max="80" value="20" />
-      <span class="setting-val" id="val-rows">20</span>
+      <input id="inp-rows" type="range" min="5" max="80" value="21" />
+      <span class="setting-val" id="val-rows">21</span>
     </label>
     <label class="setting">
       <span class="setting-label">Gangbreite&nbsp;(px)</span>
@@ -34,8 +34,8 @@
     </label>
     <label class="setting">
       <span class="setting-label">Überblendung&nbsp;(px)</span>
-      <input id="inp-fade" type="range" min="0" max="150" value="100" />
-      <span class="setting-val" id="val-fade">100</span>
+      <input id="inp-fade" type="range" min="0" max="200" value="150" />
+      <span class="setting-val" id="val-fade">150</span>
     </label>
   </div>
 
@@ -43,9 +43,12 @@
   <div id="hud">
     <span>Zeit</span>
     <span id="timer">0.0 s</span>
-    <span id="size-info">200 × 200 px</span>
-    <button id="btn-new">Neues Labyrinth</button>
-    <button id="btn-solution" aria-pressed="false">Lösung zeigen</button>
+<span>Punkte</span>
+    <span id="score">0</span>
+    <span>Level</span>
+    <span id="level">1</span>
+    <button id="btn-new" class="hidden">Neues Labyrinth</button>
+    <button id="btn-solution" class="hidden" aria-pressed="false">Lösung zeigen</button>
   </div>
 
   <!-- Canvas -->
@@ -58,7 +61,7 @@
     </div>
   </div>
 
-  <p id="hint">Steuerung: Pfeiltasten &nbsp;/&nbsp; WASD</p>
+  <p id="hint">Steuerung: Pfeiltasten &nbsp;/&nbsp; WASD &nbsp;&nbsp;·&nbsp;&nbsp; Spells: Tasten 1–0</p>
 
   <script type="module" src="js/game.js"></script>
 </body>

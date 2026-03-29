@@ -164,7 +164,7 @@ export class Maze {
 
   // Discovers new dead-end regions (fog-bounded flood fill from visited cells),
   // persists them in knownDeadCells, then draws all known dead cells.
-  drawDeadEnds(ctx, visitedCells, knownDeadCells, playerCx, playerCy, fogRadius) {
+  drawDeadEnds(ctx, visitedCells, knownDeadCells, playerCx, playerCy, fogRadius, alpha = 1) {
     const { cell, cols, rows, walls } = this;
     const DIRS = [['N', -1, 0], ['S', 1, 0], ['E', 0, 1], ['W', 0, -1]];
     const key   = (r, c) => r * cols + c;
@@ -228,8 +228,10 @@ export class Maze {
     }
 
     // Draw all persistently known dead cells (including those the player has since walked through)
+    if (alpha <= 0) return;
     ctx.save();
-    ctx.fillStyle = 'rgba(120,120,140,0.4)';
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = 'rgba(18,14,32,0.78)';
     for (const k of knownDeadCells) {
       const r = Math.floor(k / cols);
       const c = k % cols;
@@ -283,7 +285,7 @@ export class Maze {
     return path;
   }
 
-  drawSolution(ctx) {
+  drawSolution(ctx, alpha = 0.75) {
     const path = this.solution();
     const { cell } = this;
 
@@ -292,7 +294,7 @@ export class Maze {
     ctx.lineWidth   = Math.max(1, cell / 5);
     ctx.lineJoin    = 'round';
     ctx.lineCap     = 'round';
-    ctx.globalAlpha = 0.75;
+    ctx.globalAlpha = alpha;
 
     ctx.beginPath();
     for (let i = 0; i < path.length; i++) {
