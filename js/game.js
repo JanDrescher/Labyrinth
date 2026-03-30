@@ -420,7 +420,8 @@ class Game {
     this.maze   = new Maze(cols, rows, cell);
     this.player = new Player(this.maze);
     this.player.onGoal  = () => this._win();
-    this.player.robeColor = `hsl(${Math.floor(Math.random() * 360)},65%,42%)`;
+    if (!this._robeColor) this._robeColor = `hsl(${Math.floor(Math.random() * 360)},65%,42%)`;
+    this.player.robeColor = this._robeColor;
 
     this._placeItems();
 

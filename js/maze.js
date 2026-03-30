@@ -66,27 +66,29 @@ export class Maze {
     t.fillStyle = '#57524e';
     t.fillRect(0, 0, tw, th);
 
-    const brick = (x, y, w, h, col) => {
+    // edges: { top, bottom, left, right } — controls which sides get highlight/shadow
+    const brick = (x, y, w, h, col, edges = {}) => {
+      const { top = true, bottom = true, left = true, right = true } = edges;
       t.fillStyle = col;
       t.fillRect(x, y, w, h);
-      t.fillStyle = 'rgba(255,255,255,0.13)';  // top-left highlight
-      t.fillRect(x, y, w, 2);
-      t.fillRect(x, y, 2, h);
-      t.fillStyle = 'rgba(0,0,0,0.18)';         // bottom-right shadow
-      t.fillRect(x, y + h - 2, w, 2);
-      t.fillRect(x + w - 2, y, 2, h);
+      t.fillStyle = 'rgba(255,255,255,0.13)';
+      if (top)  t.fillRect(x, y, w, 2);
+      if (left) t.fillRect(x, y, 2, h);
+      t.fillStyle = 'rgba(0,0,0,0.18)';
+      if (bottom) t.fillRect(x, y + h - 2, w, 2);
+      if (right)  t.fillRect(x + w - 2, y, 2, h);
     };
 
-    brick(0,          0,      bw,     bh, '#aaa29a');  // row 1 – full brick
-    brick(0,          bh + g, bw / 2, bh, '#a29a91');  // row 2 – left half
-    brick(bw / 2 + g, bh + g, bw / 2, bh, '#b0a8a0'); // row 2 – right half
+    brick(0,          0,      bw,     bh, '#aaa29a');                    // row 1 – full brick
+    brick(0,          bh + g, bw / 2, bh, '#b0a8a0', { left:  false }); // row 2 – left half  } same brick
+    brick(bw / 2 + g, bh + g, bw / 2, bh, '#b0a8a0', { right: false }); // row 2 – right half } same brick
 
     return ctx.createPattern(tc, 'repeat');
   }
 
   _makeWallPattern(ctx) {
     // Rough stone blocks — larger and more irregular than the floor bricks
-    const bw = 14, bh = 8, g = 2;          // block width/height, mortar thickness
+    const bw = 12, bh = 5, g = 2;         // block width/height, mortar thickness
     const tw = bw + g, th = 2 * (bh + g);   // tile canvas size (running bond)
     const tc = document.createElement('canvas');
     tc.width = tw; tc.height = th;
@@ -96,27 +98,30 @@ export class Maze {
     t.fillStyle = '#14121e';
     t.fillRect(0, 0, tw, th);
 
-    const stone = (x, y, w, h, col) => {
+    const stone = (x, y, w, h, col, edges = {}) => {
+      const { top = true, bottom = true, left = true, right = true, crack = true } = edges;
       t.fillStyle = col;
       t.fillRect(x, y, w, h);
       // subtle top-left highlight
       t.fillStyle = 'rgba(180,160,255,0.07)';
-      t.fillRect(x, y, w, 2);
-      t.fillRect(x, y, 2, h);
+      if (top)  t.fillRect(x, y, w, 2);
+      if (left) t.fillRect(x, y, 2, h);
       // bottom-right shadow
       t.fillStyle = 'rgba(0,0,0,0.35)';
-      t.fillRect(x, y + h - 2, w, 2);
-      t.fillRect(x + w - 2, y, 2, h);
+      if (bottom) t.fillRect(x, y + h - 2, w, 2);
+      if (right)  t.fillRect(x + w - 2, y, 2, h);
       // faint internal crack / texture noise
-      t.fillStyle = 'rgba(0,0,0,0.12)';
-      t.fillRect(x + Math.floor(w * 0.4), y + 2, 1, h - 4);
+      if (crack) {
+        t.fillStyle = 'rgba(0,0,0,0.12)';
+        t.fillRect(x + Math.floor(w * 0.4), y + 2, 1, h - 4);
+      }
     };
 
     // Row 1 — one full block
-    stone(0,          0,      bw,       bh, '#2a2640');
-    // Row 2 — two half blocks (offset by half, running bond)
-    stone(0,          bh + g, bw * 0.45, bh, '#231f38');
-    stone(bw * 0.45 + g, bh + g, bw * 0.55, bh, '#302c46');
+    stone(0,             0,      bw,        bh, '#2a2640');
+    // Row 2 — two half blocks (offset by half, running bond) — same virtual stone
+    stone(0,             bh + g, bw * 0.45, bh, '#2a2640', { left: false, crack: false });
+    stone(bw * 0.45 + g, bh + g, bw * 0.55, bh, '#2a2640', { right: false });
 
     // Faint magic glow in mortar seam between rows (horizontal line)
     t.fillStyle = 'rgba(100,80,180,0.12)';
@@ -127,35 +132,57 @@ export class Maze {
 
   draw(ctx) {
     const { cols, rows, cell } = this;
-    const W = Math.max(3, Math.round(cell * 0.10)); // wall half-thickness per side
-    const s = cell - 2 * W;                         // corridor/interior width
+    const W = Math.max(3, Math.round(cell * 0.15)); // wall half-thickness per side
 
-    // Fill entire area with stone wall pattern
-    if (!this._wallPattern) this._wallPattern = this._makeWallPattern(ctx);
-    ctx.fillStyle = this._wallPattern;
-    ctx.fillRect(0, 0, cols * cell, rows * cell);
-
-    // Carve out floor corridors with stone tile pattern
+    // Fill entire area with floor pattern
     if (!this._floorPattern) this._floorPattern = this._makeFloorPattern(ctx);
     ctx.fillStyle = this._floorPattern;
+    ctx.fillRect(0, 0, cols * cell, rows * cell);
+
+    // Draw walls as stroked path segments (lineWidth = 2W, square caps fill corners)
+    if (!this._wallPattern) this._wallPattern = this._makeWallPattern(ctx);
+    ctx.save();
+    ctx.strokeStyle = this._wallPattern;
+    ctx.lineWidth   = 2 * W;
+    ctx.lineCap     = 'round';
+
+    ctx.beginPath();
+
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const x = c * cell + W, y = r * cell + W;
-        ctx.fillRect(x, y, s, s);                                         // cell interior
-        if (!this.walls[r][c].E && c < cols - 1)
-          ctx.fillRect(c * cell + cell - W, y, 2 * W, s);                 // passage east
-        if (!this.walls[r][c].S && r < rows - 1)
-          ctx.fillRect(x, r * cell + cell - W, s, 2 * W);                 // passage south
+        if (this.walls[r][c].N) {
+          ctx.moveTo( c      * cell, r * cell);
+          ctx.lineTo((c + 1) * cell, r * cell);
+        }
+        if (this.walls[r][c].W) {
+          ctx.moveTo(c * cell,  r      * cell);
+          ctx.lineTo(c * cell, (r + 1) * cell);
+        }
       }
     }
 
+    // South border (bottom row)
+    for (let c = 0; c < cols; c++) {
+      if (this.walls[rows - 1][c].S) {
+        ctx.moveTo( c      * cell, rows * cell);
+        ctx.lineTo((c + 1) * cell, rows * cell);
+      }
+    }
 
-    // Entrance and exit openings at maze edges
-    const mid = Math.floor(cols / 2);
-    ctx.fillRect(mid * cell + W, rows * cell - W, s, W);  // entrance (south)
-    ctx.fillRect(mid * cell + W, 0,               s, W);  // exit (north)
+    // East border (rightmost column)
+    for (let r = 0; r < rows; r++) {
+      if (this.walls[r][cols - 1].E) {
+        ctx.moveTo(cols * cell,  r      * cell);
+        ctx.lineTo(cols * cell, (r + 1) * cell);
+      }
+    }
+
+    ctx.stroke();
+    ctx.restore();
 
     // Entrance marker (green) and exit marker (red)
+    const mid = Math.floor(cols / 2);
+    const s   = cell - 2 * W;
     ctx.fillStyle = '#00c853';
     ctx.fillRect(mid * cell + W, rows * cell - 3, s, 3);
     ctx.fillStyle = '#d50000';

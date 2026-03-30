@@ -91,10 +91,11 @@ Zeit  [0.0 s]  Punkte [0]  Level [1]  [Neues Labyrinth*]  [Lösung zeigen*]
 
 Stack-basierter DFS, erzeugt **perfektes Labyrinth** (keine Schleifen).
 
-### `draw(ctx)` — Thick-Wall-Renderer
+### `draw(ctx)` — Path-based Renderer
 
-Wandstärke `W = Math.max(3, Math.round(cell * 0.10))`, Gangbreite `s = cell - 2*W`.
-Wandmuster (`_makeWallPattern`) und Bodenmuster (`_makeFloorPattern`) als gecachte `CanvasPattern`.
+Wandstärke `W = Math.max(3, Math.round(cell * 0.15))`.
+Ansatz: Boden zuerst flächig füllen (`_makeFloorPattern`), dann Wände als gestrichelte Liniensegmente darüber (`_makeWallPattern`, `lineWidth = 2W`, `lineCap = 'round'`). Jede Wand wird genau einmal gezeichnet (N + W pro Zelle, dann Süd- und Ostrand). Runde Linienenden (`lineCap = 'round'`) erzeugen organisch wirkende Wandabschlüsse.
+Beide Pattern-Texturen nutzen Läuferverband; die geteilten Hälften an der Kachelgrenze unterdrücken innere Kanten-Highlights/-Schatten um Nahtartefakte zu vermeiden.
 
 ### `drawSolution(ctx, alpha = 0.75)`
 
@@ -128,7 +129,7 @@ knownDeadCells  Set<number> — erkannte Sackgassen
 **Sprite:** Vier separate Dateien mit je 4 Walk-Frames horizontal, transparenter Hintergrund:
 - `img/mage-s.png` (1945×528), `img/mage-n.png` (1945×528), `img/mage-w.png` (1945×528), `img/mage-e.png` (1456×396)
 
-Frame-Wechsel alle 150 ms bei Bewegung, Frame 0 im Stand. Gezeichnet in Screengröße `cell × 0.80`. Keine Rotation — jede Datei zeigt die native Blickrichtung. Robe-Farbe per HSL-Hue-Substitution (`robeColor`-Property, hex oder hsl-String); zufälliger Farbton bei jedem neuen Labyrinth.
+Frame-Wechsel alle 150 ms bei Bewegung, Frame 0 im Stand. Gezeichnet in Screengröße `cell × 0.80`. Keine Rotation — jede Datei zeigt die native Blickrichtung. Robe-Farbe per HSL-Hue-Substitution (`robeColor`-Property, hex oder hsl-String); zufälliger Farbton beim ersten Start, bleibt für die gesamte Spielsitzung konstant (gespeichert in `Game._robeColor`).
 
 ---
 
