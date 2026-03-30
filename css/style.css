@@ -278,15 +278,14 @@ button:active { filter: brightness(.9); }
 
 @media (pointer: coarse) {
   body {
-    height: 100dvh;
-    height: 100vh; /* fallback for older browsers */
+    height: 100vh;    /* fallback */
+    height: 100dvh;   /* respects mobile browser chrome */
   }
 
   #hint { display: none; }
 
   #canvas-wrap {
     max-height: 100%;
-    overflow: hidden;
   }
 
   /* Spell bar: absolute overlay at bottom, 2 rows of 5 */

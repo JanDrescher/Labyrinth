@@ -162,7 +162,7 @@ class Game {
 
   _ovalGeometry() {
     const vw = this.canvas.width, vh = this.canvas.height;
-    const rx = Math.min(vw, vh) * 0.40;
+    const rx = Math.min(vw, vh) * 0.20;
     return { cx: vw / 2, cy: vh * 0.75, rx, ry: rx * 0.60 };
   }
 
@@ -210,13 +210,29 @@ class Game {
       }
     }, { passive: false });
 
-    const end = () => {
+    this.canvas.addEventListener('touchend', e => {
+      // Tap (no swipe direction locked): move one step in tapped quadrant
+      if (this._touchActive && !this._touchDir) {
+        const { x, y } = toCanvas(e.changedTouches[0]);
+        const { cx, cy, rx, ry } = this._ovalGeometry();
+        const ndx = (x - cx) / rx;
+        const ndy = (y - cy) / ry;
+        const tapDir = Math.abs(ndx) > Math.abs(ndy)
+          ? (ndx > 0 ? 'E' : 'W')
+          : (ndy > 0 ? 'S' : 'N');
+        this._heldDirs.add(tapDir);
+        requestAnimationFrame(() => this._heldDirs.delete(tapDir));
+      }
       if (this._touchDir) this._heldDirs.delete(this._touchDir);
       this._touchDir    = null;
       this._touchActive = false;
-    };
-    this.canvas.addEventListener('touchend',    end, { passive: true });
-    this.canvas.addEventListener('touchcancel', end, { passive: true });
+    }, { passive: true });
+
+    this.canvas.addEventListener('touchcancel', () => {
+      if (this._touchDir) this._heldDirs.delete(this._touchDir);
+      this._touchDir    = null;
+      this._touchActive = false;
+    }, { passive: true });
   }
 
   _drawTouchControls(ctx) {
@@ -609,6 +625,7 @@ class Game {
     const vh  = this.canvas.height;
     const vcx = vw / 2;
     const vcy = vh / 2;
+    const psy = this._hasTouch ? Math.round(vh * 0.20) : vcy; // player screen-y
     const px  = this.player._cx;
     const py  = this.player._cy;
 
@@ -629,9 +646,9 @@ class Game {
     ctx.save();
     if (zoom === 1) {
       // Math.round prevents subpixel tile gaps at normal scale
-      ctx.translate(Math.round(vcx - px), Math.round(vcy - py));
+      ctx.translate(Math.round(vcx - px), Math.round(psy - py));
     } else {
-      ctx.translate(vcx, vcy);
+      ctx.translate(vcx, psy);
       ctx.scale(zoom, zoom);
       ctx.translate(-px, -py);
     }
@@ -654,7 +671,7 @@ class Game {
 
     // Player drawn in screen space so it stays full-size during Sprung zoom-out
     ctx.save();
-    ctx.translate(vcx - px, vcy - py);
+    ctx.translate(vcx - px, psy - py);
     if (this.player.phasing) {
       const pulse = 0.42 + 0.22 * Math.sin(performance.now() / 170);
       ctx.globalAlpha = pulse;
@@ -666,7 +683,7 @@ class Game {
 
     // Orakel: fog fades to 0 when active, returns over last 1 s
     const orakelAlpha = this._getSpellAlpha(6, 1);
-    this._drawFog(ctx, vcx, vcy, 1 - orakelAlpha, zoom);
+    this._drawFog(ctx, vcx, psy, 1 - orakelAlpha, zoom);
 
     // Rückkehr flash
     if (this._teleportFlash > 0) {
