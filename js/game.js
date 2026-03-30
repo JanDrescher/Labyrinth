@@ -164,7 +164,7 @@ class Game {
   _ovalGeometry() {
     const vw = this.canvas.width, vh = this.canvas.height;
     const rx = Math.min(vw, vh) * 0.30;
-    return { cx: vw / 2, cy: vh * 0.75, rx, ry: rx * 0.60 };
+    return { cx: vw / 2, cy: vh * 0.70, rx, ry: rx * 0.60 };
   }
 
   _initTouchControls() {
