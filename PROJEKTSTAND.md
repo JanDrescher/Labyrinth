@@ -1,6 +1,6 @@
-# MageMaze – Projektdokumentation
+# Maze Of Mages – Projektdokumentation
 
-**Stand:** 2026-03-29 (aktualisiert)
+**Stand:** 2026-03-30 (aktualisiert)
 **Pfad:** `/home/admin/Labyrinth/` — Git-Repo, Entwicklung und Live-Version (Apache zeigt direkt hierher)
 **Erreichbar unter:** `http://localhost:4000` — Apache-VirtualHost, startet automatisch mit dem System.
 **Online (GitHub Pages):** `https://JanDrescher.github.io/Labyrinth/` — wird automatisch aktualisiert bei jedem Push auf `main`.
@@ -21,11 +21,11 @@ Labyrinth/
 ├── server.js          Node.js HTTP-Server (port 4000, keine npm-Abhängigkeiten)
 ├── index.html         Hauptseite
 ├── css/
-│   └── style.css      Layout, Themes, Slider-Styling
+│   └── style.css      Layout, Themes, Slider-Styling, Mobile-Media-Query
 └── js/
     ├── maze.js        Labyrinth-Generator, Renderer, BFS-Löser, Dead-End-Erkennung
     ├── player.js      Spieler: Bewegung, Kollision, Darstellung, visitedCells, phasing
-    └── game.js        Game-Loop, Kamera, Fog-of-War, Spells, Items, Beacons, UI
+    └── game.js        Game-Loop, Kamera, Fog-of-War, Spells, Items, Beacons, UI, Touch
 ```
 
 ---
@@ -46,13 +46,14 @@ Minimaler HTTP-Dateiserver ohne externe Abhängigkeiten.
 Struktur der Seite (von oben nach unten):
 
 ```
-<h1>           Titel "MageMaze"
+<h1>           Titel "Maze Of Mages"
 #settings      Schieberegler-Panel (5 Regler) — standardmäßig versteckt
 #hud           Timer, Punkte, Level, Buttons (Buttons standardmäßig versteckt)
 #canvas-wrap   Spielfeld-Container (flex, nimmt restlichen Raum ein)
+  #spell-bar   Spell-Leiste (Desktop: oben; Mobil: Overlay am unteren Canvas-Rand)
   <canvas>     Spielfeld
   #overlay     Start-/Gewinn-Overlay (Enter startet nächstes Labyrinth)
-<p#hint>       Tastatur-Hinweis
+<p#hint>       Tastatur-Hinweis (auf Mobilgeräten ausgeblendet)
 ```
 
 ### Schieberegler (`#settings`) — standardmäßig versteckt
@@ -94,7 +95,7 @@ Stack-basierter DFS, erzeugt **perfektes Labyrinth** (keine Schleifen).
 ### `draw(ctx)` — Path-based Renderer
 
 Wandstärke `W = Math.max(3, Math.round(cell * 0.15))`.
-Ansatz: Boden zuerst flächig füllen (`_makeFloorPattern`), dann Wände als gestrichelte Liniensegmente darüber (`_makeWallPattern`, `lineWidth = 2W`, `lineCap = 'round'`). Jede Wand wird genau einmal gezeichnet (N + W pro Zelle, dann Süd- und Ostrand). Runde Linienenden (`lineCap = 'round'`) erzeugen organisch wirkende Wandabschlüsse.
+Ansatz: Boden zuerst flächig füllen (`_makeFloorPattern`), dann Wände als gestrichelte Liniensegmente darüber (`_makeWallPattern`, `lineWidth = 2W`, `lineCap = 'round'`). Jede Wand wird genau einmal gezeichnet (N + W pro Zelle, dann Süd- und Ostrand). Runde Linienenden erzeugen organisch wirkende Wandabschlüsse.
 Beide Pattern-Texturen nutzen Läuferverband; die geteilten Hälften an der Kachelgrenze unterdrücken innere Kanten-Highlights/-Schatten um Nahtartefakte zu vermeiden.
 
 ### `drawSolution(ctx, alpha = 0.75)`
@@ -154,7 +155,7 @@ Frame-Wechsel alle 150 ms bei Bewegung, Frame 0 im Stand. Gezeichnet in Screengr
 | 9    | —     | (leer)      | —     | —     | —       | — |
 
 **Spell-Counts** werden nicht zwischen Leveln zurückgesetzt.
-**Sonder-Routing** in keydown: Index 3 → `_activateWallSpell()`, Index 5 → `_activateLightSpell()`, Index 7 → `_activateReturnSpell()`.
+**Aktivierung:** Tasten 1–0 (Desktop) oder Tap auf Spell-Slot (Mobil). Interner Helper `_triggerSpell(idx)` übernimmt das Routing zu `_activateWallSpell()`, `_activateLightSpell()`, `_activateReturnSpell()` bzw. `_activateSpell(idx)`.
 
 ### Item-System
 
@@ -178,11 +179,15 @@ Standard: versteckt. **Enter** startet nächstes Labyrinth wenn Overlay sichtbar
 
 ### Kamera & Zoom
 
-Normale Ansicht: `ctx.translate(Math.round(vcx-px), Math.round(vcy-py))`
-Sprung-Spell: `ctx.translate(vcx,vcy); ctx.scale(zoom,zoom); ctx.translate(-px,-py)`
+Desktop: `psy = vh/2` — Spieler in Bildschirmmitte.
+Mobil: `psy = vh * 0.40` — Spieler im oberen Bereich, Platz für Steuer-Oval unten.
+
+Normale Ansicht: `ctx.translate(Math.round(vcx-px), Math.round(psy-py))`
+Sprung-Spell: `ctx.translate(vcx, psy); ctx.scale(zoom,zoom); ctx.translate(-px,-py)`
 Zoom-Kurve: `zoom = 1 − 0.55 × sin(π × progress)` (0→1 über 5s).
 
 **Spieler wird außerhalb des Zoom-Transforms gezeichnet** → bleibt bei Sprung immer gleich groß.
+Fog-Zentrum folgt `psy` (nicht fester Bildschirmmittelpunkt).
 
 ### Fog-of-War (`_drawFog`)
 
@@ -200,6 +205,18 @@ Offscreen-Canvas-Ansatz mit `destination-out` für mehrere Lichtquellen:
 - Lichtradius: `max(40, fog × 0.75)`, Fade: `min(fade, 55)`
 - Visuell: flackernder oranger Orb in Weltspace
 
+### Touch-Steuerung (Mobil)
+
+Erkennung: `navigator.maxTouchPoints > 0` → `this._hasTouch`.
+
+**Steuer-Oval** (`_ovalGeometry()`): Mittelpunkt `(vw/2, vh*0.70)`, `rx = min(vw,vh)*0.30`, `ry = rx*0.60`. Wird auf Canvas in Screen-Space gezeichnet (`_drawTouchControls`), halbtransparent mit 4 Richtungspfeilen; aktive Richtung leuchtet weiß.
+
+**Gesten** (`_initTouchControls()`):
+- `touchstart` im Oval: Bewegung startet sofort in Richtung des berührten Quadranten
+- `touchmove`: Swipe-Delta > 12 px überschreibt die Richtung
+- `touchend` / `touchcancel`: Bewegung stoppt sofort
+
+**State:** `_touchDir` (aktuelle Richtung), `_touchActive` (Finger gedrückt) — beide werden in `_startNew()` zurückgesetzt.
 
 ### Render-Reihenfolge pro Frame
 
@@ -217,13 +234,15 @@ Offscreen-Canvas-Ansatz mit `destination-out` für mehrere Lichtquellen:
 11. screen-space player draw (unabhängig vom Zoom)
 12. _drawFog(ctx, fogMult)
 13. Rückkehr-Flash
-14. _updateSpellBar()
+14. _drawTouchControls(ctx)  ← nur auf Touch-Geräten
+15. _updateSpellBar()
 ```
 
 ### Spell-Leiste (HTML, über Canvas)
 
-- HTML-`<div id="spell-bar">` innerhalb `#canvas-wrap`, oberhalb des Canvas
-- 10 Slots à 52×52 px, GAP 5 px, zentriert, `padding-bottom: 6px`
+- HTML-`<div id="spell-bar">` innerhalb `#canvas-wrap`
+- **Desktop:** oberhalb des Canvas, 1 Reihe, 10 Slots à 52×52 px, GAP 5 px
+- **Mobil:** `position: absolute; bottom: 0` — Overlay am unteren Canvas-Rand, 2 Reihen à 5 Slots, kleinere Slots (44 px Höhe, `flex: 0 0 calc(20% - 4px)`), halbtransparenter Hintergrund
 - Slot: Countdown oben-links, Taste+Name mittig, Ladungen unten-rechts
 - Aktiv: blauer Rahmen + Glow (CSS-Klasse `.active`); Erschöpft: opacity 0.38 (`.depleted`)
 
@@ -232,11 +251,16 @@ Offscreen-Canvas-Ansatz mit `destination-out` für mehrere Lichtquellen:
 ## css/style.css
 
 ```
-body (flex column, 100vh)
+body (flex column, 100vh / 100dvh)
 ├── h1, #settings (hidden), #hud
-├── #canvas-wrap (flex:1)
-└── #hint
+├── #canvas-wrap (flex:1, position:relative)
+│   ├── #spell-bar (Desktop: flex oben; Mobil: absolute bottom overlay)
+│   ├── <canvas>
+│   └── #overlay (z-index:20 auf Mobil)
+└── #hint (auf Mobil: display:none)
 ```
+
+Mobile Media Query: `@media (pointer: coarse)` — kleinere Spell-Slots, 2-reihige Leiste, `100dvh`.
 
 `.hidden { display: none !important; }`
 `#score`, `#level`: `1.05rem`, weiß, tabular-nums.
@@ -245,7 +269,7 @@ body (flex column, 100vh)
 
 ## Spielablauf
 
-1. Laden → Overlay "Finde den Ausgang!" — **Enter** oder Start-Button
+1. Laden → Overlay "Finde den Ausgang!" — **Enter** / Start-Button / Tap
 2. 21×21 Labyrinth, Spieler unten Mitte, Items platziert
 3. Ziel: oben Mitte durch Nordöffnung (`_cy < 0`) → Sieg
 4. Punkte + Level + nächstes Labyrinth wächst um 2×2
@@ -254,10 +278,7 @@ body (flex column, 100vh)
 
 ## Nächstes Feature
 
-**Mobile-Optimierung:** Touch-Steuerung und responsive Darstellung für Smartphones und Tablets.
-- Virtuelle Steuerung (D-Pad oder Swipe)
-- Spell-Leiste touch-freundlich (größere Tap-Flächen)
-- Viewport/Canvas-Skalierung für kleine Bildschirme
+Offen — Mobile-Optimierung abgeschlossen.
 
 ---
 
