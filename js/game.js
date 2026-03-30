@@ -199,8 +199,11 @@ class Game {
       e.preventDefault();
       const { x, y } = toCanvas(e.changedTouches[0]);
       if (inOval(x, y)) {
-        // Cancel any persistent tap-movement before starting new gesture
-        if (this._touchFromTap) clearDir();
+        clearDir();
+        // Start moving immediately in the direction of the touched arrow
+        const dir      = dirFromPos(x, y);
+        this._touchDir = dir;
+        this._heldDirs.add(dir);
         this._touchActive = true;
         this._touchOriX   = e.changedTouches[0].clientX;
         this._touchOriY   = e.changedTouches[0].clientY;
@@ -213,10 +216,7 @@ class Game {
       const t  = e.changedTouches[0];
       const dx = t.clientX - this._touchOriX;
       const dy = t.clientY - this._touchOriY;
-      if (Math.hypot(dx, dy) < THRESHOLD) {
-        if (this._touchDir) { this._heldDirs.delete(this._touchDir); this._touchDir = null; }
-        return;
-      }
+      if (Math.hypot(dx, dy) < THRESHOLD) return;
       const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'E' : 'W') : (dy > 0 ? 'S' : 'N');
       if (dir !== this._touchDir) {
         if (this._touchDir) this._heldDirs.delete(this._touchDir);
@@ -225,22 +225,8 @@ class Game {
       }
     }, { passive: false });
 
-    this.canvas.addEventListener('touchend', e => {
-      if (this._touchActive) {
-        if (!this._touchDir) {
-          // Tap: set continuous movement in tapped direction
-          const { x, y } = toCanvas(e.changedTouches[0]);
-          if (inOval(x, y)) {
-            const tapDir = dirFromPos(x, y);
-            this._touchDir     = tapDir;
-            this._touchFromTap = true;
-            this._heldDirs.add(tapDir);
-          }
-        } else {
-          // Swipe released: stop movement
-          clearDir();
-        }
-      }
+    this.canvas.addEventListener('touchend', () => {
+      clearDir();
       this._touchActive = false;
     }, { passive: true });
 
