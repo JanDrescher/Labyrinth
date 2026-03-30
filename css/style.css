@@ -273,3 +273,45 @@ button:active { filter: brightness(.9); }
   color: var(--muted);
   opacity: .6;
 }
+
+/* ── Mobile (touch devices) ──────────────────────────── */
+
+@media (pointer: coarse) {
+  body {
+    height: 100dvh;
+    height: 100vh; /* fallback for older browsers */
+  }
+
+  #hint { display: none; }
+
+  #canvas-wrap {
+    max-height: 100%;
+    overflow: hidden;
+  }
+
+  /* Spell bar: absolute overlay at bottom, 2 rows of 5 */
+  #spell-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    flex-wrap: wrap;
+    background: rgba(10,10,26,0.75);
+    padding: 4px 6px;
+    gap: 4px;
+    z-index: 10;
+  }
+
+  .spell-slot {
+    flex: 0 0 calc(20% - 4px);
+    height: 44px;
+    width: auto;
+  }
+
+  .spell-slot .sp-key       { font-size: 13px; }
+  .spell-slot .sp-name      { font-size: 6px; }
+  .spell-slot .sp-countdown,
+  .spell-slot .sp-charges   { font-size: 9px; }
+
+  #overlay { z-index: 20; }
+}

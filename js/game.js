@@ -50,6 +50,9 @@ class Game {
     this._teleportFlash = 0;
     this._beacons      = [];
     this._fogCanvas    = null;
+    this._hasTouch     = navigator.maxTouchPoints > 0;
+    this._touchDir     = null;
+    this._touchActive  = false;
 
     // Build spell-bar DOM slots
     this._spellBarEl   = document.getElementById('spell-bar');
@@ -65,6 +68,7 @@ class Game {
           `<span class="sp-key">${keyLabel}</span>` +
           `<span class="sp-name">${spell.name}</span>` +
           `<span class="sp-charges">${spell.count}</span>`;
+        slot.addEventListener('click', () => this._triggerSpell(i));
       }
       this._spellBarEl.appendChild(slot);
       this._spellSlotEls.push(slot);
@@ -118,10 +122,7 @@ class Game {
       if (e.code.startsWith('Digit')) {
         const d   = parseInt(e.code[5], 10);
         const idx = d === 0 ? 9 : d - 1;
-        if      (idx === 3) this._activateWallSpell();
-        else if (idx === 5) this._activateLightSpell();
-        else if (idx === 7) this._activateReturnSpell();
-        else                this._activateSpell(idx);
+        this._triggerSpell(idx);
       }
     });
     window.addEventListener('keyup',  e => { const d = KEY_DIR[e.code]; if (d) this._heldDirs.delete(d); });
@@ -135,6 +136,8 @@ class Game {
 
     new ResizeObserver(() => this._fitCanvas()).observe(this._wrap);
 
+    if (this._hasTouch) this._initTouchControls();
+
     this._startNew();
   }
 
@@ -144,6 +147,126 @@ class Game {
     document.getElementById('settings').classList.toggle('hidden');
     document.getElementById('btn-new').classList.toggle('hidden');
     document.getElementById('btn-solution').classList.toggle('hidden');
+  }
+
+  // ── Spell trigger (keyboard + tap) ──────────────────────
+
+  _triggerSpell(idx) {
+    if      (idx === 3) this._activateWallSpell();
+    else if (idx === 5) this._activateLightSpell();
+    else if (idx === 7) this._activateReturnSpell();
+    else                this._activateSpell(idx);
+  }
+
+  // ── Touch controls ───────────────────────────────────────
+
+  _ovalGeometry() {
+    const vw = this.canvas.width, vh = this.canvas.height;
+    const rx = Math.min(vw, vh) * 0.40;
+    return { cx: vw / 2, cy: vh * 0.75, rx, ry: rx * 0.60 };
+  }
+
+  _initTouchControls() {
+    const THRESHOLD = 12;
+
+    const toCanvas = t => {
+      const r = this.canvas.getBoundingClientRect();
+      return {
+        x: (t.clientX - r.left) * (this.canvas.width  / r.width),
+        y: (t.clientY - r.top)  * (this.canvas.height / r.height),
+      };
+    };
+
+    const inOval = (x, y) => {
+      const { cx, cy, rx, ry } = this._ovalGeometry();
+      return ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1;
+    };
+
+    this.canvas.addEventListener('touchstart', e => {
+      e.preventDefault();
+      const { x, y } = toCanvas(e.changedTouches[0]);
+      if (inOval(x, y)) {
+        this._touchActive = true;
+        this._touchOriX   = e.changedTouches[0].clientX;
+        this._touchOriY   = e.changedTouches[0].clientY;
+      }
+    }, { passive: false });
+
+    this.canvas.addEventListener('touchmove', e => {
+      e.preventDefault();
+      if (!this._touchActive) return;
+      const t  = e.changedTouches[0];
+      const dx = t.clientX - this._touchOriX;
+      const dy = t.clientY - this._touchOriY;
+      if (Math.hypot(dx, dy) < THRESHOLD) {
+        if (this._touchDir) { this._heldDirs.delete(this._touchDir); this._touchDir = null; }
+        return;
+      }
+      const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'E' : 'W') : (dy > 0 ? 'S' : 'N');
+      if (dir !== this._touchDir) {
+        if (this._touchDir) this._heldDirs.delete(this._touchDir);
+        this._touchDir = dir;
+        this._heldDirs.add(dir);
+      }
+    }, { passive: false });
+
+    const end = () => {
+      if (this._touchDir) this._heldDirs.delete(this._touchDir);
+      this._touchDir    = null;
+      this._touchActive = false;
+    };
+    this.canvas.addEventListener('touchend',    end, { passive: true });
+    this.canvas.addEventListener('touchcancel', end, { passive: true });
+  }
+
+  _drawTouchControls(ctx) {
+    if (!this._hasTouch) return;
+    const { cx, cy, rx, ry } = this._ovalGeometry();
+    const aw = Math.max(6, rx * 0.18);
+
+    ctx.save();
+
+    // Oval background
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(10,10,30,0.50)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(120,130,200,0.40)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Directional arrows
+    const arrow = dir => {
+      ctx.fillStyle = this._touchDir === dir ? '#ffffff' : 'rgba(180,180,220,0.75)';
+      ctx.beginPath();
+      switch (dir) {
+        case 'N':
+          ctx.moveTo(cx,            cy - ry * 0.65);
+          ctx.lineTo(cx - aw,       cy - ry * 0.65 + aw * 1.4);
+          ctx.lineTo(cx + aw,       cy - ry * 0.65 + aw * 1.4);
+          break;
+        case 'S':
+          ctx.moveTo(cx,            cy + ry * 0.65);
+          ctx.lineTo(cx - aw,       cy + ry * 0.65 - aw * 1.4);
+          ctx.lineTo(cx + aw,       cy + ry * 0.65 - aw * 1.4);
+          break;
+        case 'W':
+          ctx.moveTo(cx - rx * 0.70,            cy);
+          ctx.lineTo(cx - rx * 0.70 + aw * 1.4, cy - aw);
+          ctx.lineTo(cx - rx * 0.70 + aw * 1.4, cy + aw);
+          break;
+        case 'E':
+          ctx.moveTo(cx + rx * 0.70,            cy);
+          ctx.lineTo(cx + rx * 0.70 - aw * 1.4, cy - aw);
+          ctx.lineTo(cx + rx * 0.70 - aw * 1.4, cy + aw);
+          break;
+      }
+      ctx.closePath();
+      ctx.fill();
+    };
+
+    ['N', 'S', 'W', 'E'].forEach(arrow);
+    ctx.restore();
   }
 
   // ── Spell logic ──────────────────────────────────────────
@@ -405,6 +528,8 @@ class Game {
     this._won    = false;
     this._startT = performance.now();
     this._heldDirs.clear();
+    this._touchDir    = null;
+    this._touchActive = false;
 
     // Only cancel active spell effects; counts carry over between levels
     for (const spell of this._spells) {
@@ -555,6 +680,7 @@ class Game {
       }
     }
 
+    this._drawTouchControls(ctx);
     this._updateSpellBar();
   }
 
