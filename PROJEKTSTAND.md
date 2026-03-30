@@ -1,6 +1,6 @@
 # Maze Of Mages – Projektdokumentation
 
-**Stand:** 2026-03-30 (aktualisiert)
+**Stand:** 2026-03-31 (aktualisiert)
 **Pfad:** `/home/admin/Labyrinth/` — Git-Repo, Entwicklung und Live-Version (Apache zeigt direkt hierher)
 **Erreichbar unter:** `http://localhost:4000` — Apache-VirtualHost, startet automatisch mit dem System.
 **Online (GitHub Pages):** `https://JanDrescher.github.io/Labyrinth/` — wird automatisch aktualisiert bei jedem Push auf `main`.
@@ -22,6 +22,9 @@ Labyrinth/
 ├── index.html         Hauptseite
 ├── css/
 │   └── style.css      Layout, Themes, Slider-Styling, Mobile-Media-Query
+├── img/
+│   ├── mage-s/n/e/w.png   Spieler-Sprites (4 Richtungen, je 4 Walk-Frames)
+│   └── spell-sprite.png   Spell-Icons Spritesheet (1376×768, 5×2 Grid, 10 Spells)
 └── js/
     ├── maze.js        Labyrinth-Generator, Renderer, BFS-Löser, Dead-End-Erkennung
     ├── player.js      Spieler: Bewegung, Kollision, Darstellung, visitedCells, phasing
@@ -47,12 +50,12 @@ Struktur der Seite (von oben nach unten):
 
 ```
 <h1>           Titel "Maze Of Mages"
-#settings      Schieberegler-Panel (5 Regler) — standardmäßig versteckt
+#settings      Schieberegler-Panel (5 Regler + Level-Jump) — standardmäßig versteckt
 #hud           Timer, Punkte, Level, Buttons (Buttons standardmäßig versteckt)
 #canvas-wrap   Spielfeld-Container (flex, nimmt restlichen Raum ein)
   #spell-bar   Spell-Leiste (Desktop: oben; Mobil: Overlay am unteren Canvas-Rand)
   <canvas>     Spielfeld
-  #overlay     Start-/Gewinn-Overlay (Enter startet nächstes Labyrinth)
+  #overlay     Start-/Gewinn-Overlay
 <p#hint>       Tastatur-Hinweis (auf Mobilgeräten ausgeblendet)
 ```
 
@@ -67,6 +70,7 @@ Struktur der Seite (von oben nach unten):
 | `inp-fade`  | Überblendung (px)  | 0   | 200 | 150     | Nur Fade-Breite, kein Rebuild       |
 
 Admin-UI ein-/ausblenden: Tastensequenz **q → w → e → r → t** (Toggle).
+Im Admin-Panel zusätzlich: **Level-Jump** — Zahlenfeld + "Go"-Button. Setzt `_level`, passt Maze-Größe an (21 + (level−1)×2, max 80) und startet neu.
 
 ### HUD
 
@@ -138,34 +142,49 @@ Frame-Wechsel alle 150 ms bei Bewegung, Frame 0 im Stand. Gezeichnet in Screengr
 
 ### Spell-System
 
-`SPELL_DEFS` — 10 Slots (Index 0–9 = Taste 1–0). Jeder Eintrag enthält:
-`name`, `duration` (s), `initialCount`, `itemColor`, `itemDiv` (Item-Seltenheit).
+`SPELL_DEFS` — 10 Slots (Index 0–9 = Taste 1–0). Alle Spells starten mit `initialCount: 0`. Jeder Spell muss erst als Item im Labyrinth gefunden werden. Die Verfügbarkeit als Item ist level-gestaffelt (`minLevel`).
 
-| Slot | Taste | Name        | Dauer | Start | itemDiv | Beschreibung |
-|------|-------|-------------|-------|-------|---------|--------------|
-| 0    | 1     | Pfad        | 5 s   | 2     | 10      | Lösungspfad anzeigen, Fade ab 2 s |
-| 1    | 2     | Sackgasse   | 15 s  | 3     | 5       | Sackgassen ausgrauen, Fade ab 3 s |
-| 2    | 3     | Sprung      | 5 s   | 2     | 8       | Kamera zoomt organisch raus (sin-Kurve) |
-| 3    | 4     | Pforte      | 5 s   | 2     | 9       | Eine Wand in Blickrichtung öffnen |
-| 4    | 5     | Geist       | 6 s   | 2     | 9       | Spieler kann alle Wände durchqueren |
-| 5    | 6     | Leuchtfeuer | —     | 3     | 6       | Dauerhafter Leuchtpunkt an aktueller Position |
-| 6    | 7     | Orakel      | 4 s   | 2     | 12      | Fog komplett entfernen, Fade zurück in letzter Sekunde |
-| 7    | 8     | Rückkehr    | —     | 3     | 7       | Sofort-Teleport zum Eingang |
-| 8    | —     | (leer)      | —     | —     | —       | — |
-| 9    | —     | (leer)      | —     | —     | —       | — |
+| Slot | Taste | Name        | Dauer | minLevel | Farbe     | itemDiv | Beschreibung |
+|------|-------|-------------|-------|----------|-----------|---------|--------------|
+| 0    | 1     | Pfad        | 5 s   | 1        | `#4dd0e1` | 10      | Lösungspfad anzeigen, Fade ab 2 s |
+| 1    | 2     | Sackgasse   | 20 s  | 1        | `#66bb6a` | 5       | Sackgassen ausgrauen, Fade ab 3 s |
+| 2    | 3     | Sprung      | 5 s   | 3        | `#ff7043` | 8       | Kamera zoomt organisch raus (sin-Kurve) |
+| 3    | 4     | Pforte      | 5 s   | 5        | `#a1887f` | 9       | Eine Wand in Blickrichtung öffnen |
+| 4    | 5     | Geist       | 6 s   | 7        | `#ba68c8` | 9       | Spieler kann alle Wände durchqueren |
+| 5    | 6     | Leuchtfeuer | —     | —        | `#ffab40` | 6       | Dauerhafter Leuchtpunkt (noch kein minLevel) |
+| 6    | 7     | Orakel      | 4 s   | —        | `#fff176` | 12      | Fog komplett entfernen (noch kein minLevel) |
+| 7    | 8     | Rückkehr    | —     | —        | `#ffd54f` | 7       | Sofort-Teleport zum Eingang (noch kein minLevel) |
+| 8    | —     | (leer)      | —     | —        | —         | —       | — |
+| 9    | —     | (leer)      | —     | —        | —         | —       | — |
 
 **Spell-Counts** werden nicht zwischen Leveln zurückgesetzt.
-**Aktivierung:** Tasten 1–0 (Desktop) oder Tap auf Spell-Slot (Mobil). Interner Helper `_triggerSpell(idx)` übernimmt das Routing zu `_activateWallSpell()`, `_activateLightSpell()`, `_activateReturnSpell()` bzw. `_activateSpell(idx)`.
+**Aktivierung:** Tasten 1–0 (Desktop) oder Tap auf Spell-Slot (Mobil). Interner Helper `_triggerSpell(idx)`.
+
+### Discovery-System (Erstfund-Overlay)
+
+Wird ein Spell zum allerersten Mal aufgesammelt, pausiert der Timer und ein halbtransparentes Canvas-Overlay erscheint mit:
+- Zeile 1 (klein): "Du hast einen neuen Spell gefunden:"
+- Zeile 2 (groß, farbig): Spell-Name
+- Zeile 3: Beschreibungstext (word-wrapped)
+- OK-Button (Spell-Farbe) — schließt per Klick, Tap oder Enter
+
+`_discoveredSpells: Set<number>` — persistiert über Level hinweg. Einmal gesehen → kein Overlay mehr.
+
+**Timer-Pause:** `_pausedMs` + `_pauseStart` — während Discovery läuft der Timer nicht. `_elapsedMs()` subtrahiert die gesamte Pausezeit. Wirkt sich auch auf Zeitbonus-Berechnung aus.
 
 ### Item-System
 
 Items pro Labyrinth: `Math.max(1, floor(√(cols×rows) / itemDiv))` pro Spell.
-Aufnahme durch Drüberlaufen → +1 Ladung. Pulsierende Leuchtpunkte mit Spell-Nummer.
+Nur Spells mit `minLevel <= this._level` erhalten Items im aktuellen Level.
+Aufnahme durch Drüberlaufen → +1 Ladung. Darstellung: Spell-Sprite aus `img/spell-sprite.png` in Originalproportionen, langsam pulsierend.
+
+**Spell-Sprite-Sheet:** `img/spell-sprite.png` — 1376×768 px, 5 Spalten × 2 Reihen.
+Sprite-Index entspricht Spell-Index (0–9, zeilenweise von links oben).
 
 ### Punktevergabe
 
 - **+10** immer beim Lösen
-- **+50 Zeitbonus** wenn `Zeit < (cols−1)×(rows−1)/2` Sekunden
+- **+50 Zeitbonus** wenn `Zeit < (cols−1)×(rows−1)/2` Sekunden (pausierte Zeit zählt nicht)
 - Overlay zeigt `(+10)` bzw. `(+10 +50 Zeitbonus)` in grün
 
 ### Level-Progression
@@ -175,7 +194,8 @@ Bei jedem gelösten Labyrinth: Level +1, Spalten/Zeilen +2 (max 80), Sichtweite 
 ### Admin-UI
 
 Tastensequenz **q→w→e→r→t** togglet: Settings-Panel + "Neues Labyrinth" + "Lösung zeigen".
-Standard: versteckt. **Enter** startet nächstes Labyrinth wenn Overlay sichtbar.
+**Level-Jump:** Zahlenfeld + "Go" im Settings-Panel — springt direkt zu einem Level, passt Maze-Größe an.
+Standard: versteckt. **Enter** startet nächstes Labyrinth wenn Win-Overlay sichtbar.
 
 ### Kamera & Zoom
 
@@ -205,6 +225,15 @@ Offscreen-Canvas-Ansatz mit `destination-out` für mehrere Lichtquellen:
 - Lichtradius: `max(40, fog × 0.75)`, Fade: `min(fade, 55)`
 - Visuell: flackernder oranger Orb in Weltspace
 
+### Mini-Map
+
+Wird immer in der **linken oberen Ecke** des Canvas gezeichnet (screen space).
+
+- Größe: `min(vw*0.22, vh*0.22, 160px)`, Zellgröße mind. 2 px/Zelle
+- **Besuchte Zellen:** grau-blau gefüllt; bei Zellgröße ≥4 px werden Wandöffnungen als Konnektoren gezeichnet (1 px)
+- **Items:** langsam blinkende Punkte in Spell-Farbe (alle Items, unabhängig von Fog)
+- **Spieler:** leuchtender Dot in Roben-Farbe (`_robeColor`)
+
 ### Touch-Steuerung (Mobil)
 
 Erkennung: `navigator.maxTouchPoints > 0` → `this._hasTouch`.
@@ -215,6 +244,7 @@ Erkennung: `navigator.maxTouchPoints > 0` → `this._hasTouch`.
 - `touchstart` im Oval: Bewegung startet sofort in Richtung des berührten Quadranten
 - `touchmove`: Swipe-Delta > 12 px überschreibt die Richtung
 - `touchend` / `touchcancel`: Bewegung stoppt sofort
+- Discovery-Overlay: Tap auf OK-Button schließt das Overlay
 
 **State:** `_touchDir` (aktuelle Richtung), `_touchActive` (Finger gedrückt) — beide werden in `_startNew()` zurückgesetzt.
 
@@ -229,22 +259,25 @@ Erkennung: `navigator.maxTouchPoints > 0` → `this._hasTouch`.
 6.    game._drawItems(ctx)
 7.    maze.drawDeadEnds(ctx, ..., deadAlpha)
 8.    maze.drawSolution(ctx, solutionAlpha)
-9.    player.draw(ctx)  ← NICHT hier, sondern in screen space
-10. ctx.restore
-11. screen-space player draw (unabhängig vom Zoom)
-12. _drawFog(ctx, fogMult)
-13. Rückkehr-Flash
-14. _drawTouchControls(ctx)  ← nur auf Touch-Geräten
-15. _updateSpellBar()
+9.  ctx.restore
+10. screen-space player draw (unabhängig vom Zoom)
+11. _drawFog(ctx, fogMult)
+12. Rückkehr-Flash
+13. _drawMiniMap(ctx)        ← oben links, screen space
+14. _drawDiscovery(ctx)      ← Erstfund-Overlay
+15. _drawTouchControls(ctx)  ← nur auf Touch-Geräten
+16. _updateSpellBar()
 ```
 
 ### Spell-Leiste (HTML, über Canvas)
 
 - HTML-`<div id="spell-bar">` innerhalb `#canvas-wrap`
 - **Desktop:** oberhalb des Canvas, 1 Reihe, 10 Slots à 52×52 px, GAP 5 px
-- **Mobil:** `position: absolute; bottom: 0` — Overlay am unteren Canvas-Rand, 2 Reihen à 5 Slots, kleinere Slots (44 px Höhe, `flex: 0 0 calc(20% - 4px)`), halbtransparenter Hintergrund
-- Slot: Countdown oben-links, Taste+Name mittig, Ladungen unten-rechts
-- Aktiv: blauer Rahmen + Glow (CSS-Klasse `.active`); Erschöpft: opacity 0.38 (`.depleted`)
+- **Mobil:** `position: absolute; bottom: 0` — Overlay am unteren Canvas-Rand, 2 Reihen à 5 Slots, kleinere Slots (44 px Höhe), halbtransparenter Hintergrund
+- Slot-Inhalt: Spell-Sprite-Icon (Originalproportionen, zentriert), Countdown oben-links, Ladungen unten-rechts
+- **Leer** (nicht gefunden): nur dunkles Slot-Rechteck, kein Icon
+- **Aktiv:** blauer Rahmen + Glow (CSS-Klasse `.active`)
+- **Erschöpft** (gefunden, 0 Ladungen): Icon blass (`.depleted`, opacity 0.38)
 
 ---
 
@@ -264,21 +297,22 @@ Mobile Media Query: `@media (pointer: coarse)` — kleinere Spell-Slots, 2-reihi
 
 `.hidden { display: none !important; }`
 `#score`, `#level`: `1.05rem`, weiß, tabular-nums.
+`.sp-icon`: `aspect-ratio: 275/384`, `background-size: 500% 200%` — Sprite in Originalproportionen zentriert im Slot.
 
 ---
 
 ## Spielablauf
 
 1. Laden → Overlay "Finde den Ausgang!" — **Enter** / Start-Button / Tap
-2. 21×21 Labyrinth, Spieler unten Mitte, Items platziert
+2. 21×21 Labyrinth, Spieler unten Mitte, Items platziert (nur Spells mit `minLevel ≤ Level`)
 3. Ziel: oben Mitte durch Nordöffnung (`_cy < 0`) → Sieg
 4. Punkte + Level + nächstes Labyrinth wächst um 2×2
+5. Erstmals gefundene Spells → Discovery-Overlay mit Pause
 
 ---
 
 ## Nächstes Feature
 
-Offen — Mobile-Optimierung abgeschlossen.
+Offen — Spells 6–8 (Leuchtfeuer, Orakel, Rückkehr) noch ohne `minLevel` → erscheinen nicht als Items.
 
 ---
-

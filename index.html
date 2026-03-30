@@ -37,6 +37,11 @@
       <input id="inp-fade" type="range" min="0" max="200" value="150" />
       <span class="setting-val" id="val-fade">150</span>
     </label>
+    <label class="setting">
+      <span class="setting-label">Jump to Level</span>
+      <input id="inp-jump-level" type="number" min="1" max="999" value="1" style="width:54px;background:#0d0d1a;color:#e0e0e0;border:1px solid #2e3060;padding:2px 4px;font-size:.78rem" />
+      <button id="btn-jump-level" style="padding:.2rem .6rem;font-size:.78rem">Go</button>
+    </label>
   </div>
 
   <!-- HUD -->
@@ -58,7 +63,7 @@
 
     <div id="overlay">
       <p id="overlay-msg">Finde den Ausgang!</p>
-      <button onclick="document.getElementById('btn-new').click()">Start</button>
+      <button id="btn-start" onclick="document.getElementById('btn-new').click()">Start</button>
     </div>
   </div>
 

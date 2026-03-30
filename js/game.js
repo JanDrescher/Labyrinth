@@ -14,14 +14,14 @@ const FOG_COLOR = '13,13,26';
 // initialCount: charges the player starts the whole game with (not reset between levels)
 // itemDiv: items per maze = floor(sqrt(area) / itemDiv); omit → no items
 const SPELL_DEFS = [
-  { name: 'Pfad',      duration: 5,  initialCount: 2, itemColor: '#4dd0e1', itemDiv: 10 },
-  { name: 'Sackgasse', duration: 15, initialCount: 3, itemColor: '#ffb300', itemDiv:  5 },
-  { name: 'Sprung',    duration: 5,  initialCount: 2, itemColor: '#69f0ae', itemDiv:  8 },
-  { name: 'Pforte',    duration: 5,  initialCount: 2, itemColor: '#ce93d8', itemDiv:  9 },
-  { name: 'Geist',     duration: 6,  initialCount: 2, itemColor: '#90caf9', itemDiv:  9 },
-  { name: 'Leuchtfeuer', duration: 0, initialCount: 3, itemColor: '#ffab40', itemDiv:  6 },
-  { name: 'Orakel',     duration: 4, initialCount: 2, itemColor: '#fff176', itemDiv: 12 },
-  { name: 'Rückkehr',  duration: 0,  initialCount: 3, itemColor: '#ffd54f', itemDiv:  7 },
+  { name: 'Pfad',        duration: 5,  initialCount: 0, itemColor: '#4dd0e1', itemDiv: 10, minLevel: 1, description: 'zeigt den Lösungspfad für 5 Sekunden an' },
+  { name: 'Sackgasse',   duration: 20, initialCount: 0, itemColor: '#66bb6a', itemDiv:  5, minLevel: 1, description: 'zeigt für 20 Sekunden Sackgassen im Sichtbereich an' },
+  { name: 'Sprung',      duration: 5,  initialCount: 0, itemColor: '#ff7043', itemDiv:  8, minLevel: 3, description: 'zoomt die Kamera für 5 Sekunden heraus' },
+  { name: 'Pforte',      duration: 5,  initialCount: 0, itemColor: '#a1887f', itemDiv:  9, minLevel: 5, description: 'öffnet eine Wand in Blickrichtung für 5 Sekunden' },
+  { name: 'Geist',       duration: 6,  initialCount: 0, itemColor: '#ba68c8', itemDiv:  9, minLevel: 7, description: 'du kannst für 6 Sekunden durch Wände gehen' },
+  { name: 'Leuchtfeuer', duration: 0,  initialCount: 0, itemColor: '#ffab40', itemDiv:  6 },
+  { name: 'Orakel',      duration: 4,  initialCount: 0, itemColor: '#fff176', itemDiv: 12 },
+  { name: 'Rückkehr',    duration: 0,  initialCount: 0, itemColor: '#ffd54f', itemDiv:  7 },
   null,
   null,
 ];
@@ -46,6 +46,8 @@ class Game {
       d ? { ...d, count: d.initialCount, activeUntil: 0 } : null
     );
     this._items        = [];
+    this._spriteSheet  = new Image();
+    this._spriteSheet.src = 'img/spell-sprite.png';
     this._openedWall   = null;
     this._teleportFlash = 0;
     this._beacons      = [];
@@ -63,12 +65,12 @@ class Game {
       const spell = this._spells[i];
       slot.className = 'spell-slot' + (spell ? '' : ' empty');
       if (spell) {
-        const keyLabel = i < 9 ? String(i + 1) : '0';
+        const col = i % 5;
+        const row = Math.floor(i / 5);
         slot.innerHTML =
           `<span class="sp-countdown"></span>` +
-          `<span class="sp-key">${keyLabel}</span>` +
-          `<span class="sp-name">${spell.name}</span>` +
-          `<span class="sp-charges">${spell.count}</span>`;
+          `<div class="sp-icon" style="background-position:${col * 25}% ${row * 100}%;display:none"></div>` +
+          `<span class="sp-charges"></span>`;
         slot.addEventListener('click', () => this._triggerSpell(i));
       }
       this._spellBarEl.appendChild(slot);
@@ -90,12 +92,24 @@ class Game {
       }
     }
 
-    this._won          = false;
-    this._startT       = null;
-    this._rafId        = null;
-    this._showSolution = false;
-    this._level        = 1;
-    this._score        = 0;
+    this._won              = false;
+    this._startT           = null;
+    this._rafId            = null;
+    this._showSolution     = false;
+    this._level            = 1;
+    this._score            = 0;
+    this._discoveredSpells = new Set();
+    this._discovery        = null;   // { spellIndex, startedAt }
+    this._discoveryBtn     = null;   // { x, y, w, h } — OK-Button-Rect in Canvas-Koordinaten
+    this._pausedMs         = 0;
+    this._pauseStart       = null;
+
+    this.canvas.addEventListener('click', e => {
+      if (!this._discovery || !this._discoveryBtn) return;
+      const { x, y } = this._clientToCanvas(e.clientX, e.clientY);
+      const b = this._discoveryBtn;
+      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) this._endDiscovery();
+    });
 
     this._btnSolution = document.getElementById('btn-solution');
     this._btnSolution.addEventListener('click', () => {
@@ -106,8 +120,23 @@ class Game {
 
     document.getElementById('btn-new').addEventListener('click', () => this._startNew());
 
+    document.getElementById('btn-jump-level').addEventListener('click', () => {
+      const target = parseInt(document.getElementById('inp-jump-level').value, 10);
+      if (!isFinite(target) || target < 1) return;
+      this._level = target;
+      // Sync maze size to match what the level progression would have reached
+      const colsIn = this._sliders.cols.input;
+      const rowsIn = this._sliders.rows.input;
+      const newSize = Math.min(21 + (target - 1) * 2, 80);
+      colsIn.value = newSize; this._sliders.cols.display.textContent = newSize;
+      rowsIn.value = newSize; this._sliders.rows.display.textContent = newSize;
+      this.levelEl.textContent = String(this._level);
+      this._startNew();
+    });
+
     const ADMIN_SEQ = ['KeyQ', 'KeyW', 'KeyE', 'KeyR', 'KeyT'];
     window.addEventListener('keydown', e => {
+      if (this._discovery) { if (e.code === 'Enter') this._endDiscovery(); return; }
       if (e.code === ADMIN_SEQ[this._seqIdx]) {
         this._seqIdx++;
         if (this._seqIdx === ADMIN_SEQ.length) {
@@ -148,6 +177,32 @@ class Game {
     document.getElementById('settings').classList.toggle('hidden');
     document.getElementById('btn-new').classList.toggle('hidden');
     document.getElementById('btn-solution').classList.toggle('hidden');
+  }
+
+  // ── Helpers ──────────────────────────────────────────────
+
+  _clientToCanvas(clientX, clientY) {
+    const r = this.canvas.getBoundingClientRect();
+    return {
+      x: (clientX - r.left) * (this.canvas.width  / r.width),
+      y: (clientY - r.top)  * (this.canvas.height / r.height),
+    };
+  }
+
+  // ── Timer (pause-aware) ──────────────────────────────────
+
+  _elapsedMs() {
+    const paused = this._pausedMs + (this._pauseStart !== null ? performance.now() - this._pauseStart : 0);
+    return performance.now() - this._startT - paused;
+  }
+
+  _endDiscovery() {
+    if (!this._discovery) return;
+    if (this._pauseStart !== null) {
+      this._pausedMs  += performance.now() - this._pauseStart;
+      this._pauseStart = null;
+    }
+    this._discovery = null;
   }
 
   // ── Spell trigger (keyboard + tap) ──────────────────────
@@ -196,6 +251,15 @@ class Game {
     };
 
     this.canvas.addEventListener('touchstart', e => {
+      if (this._discovery) {
+        e.preventDefault();
+        if (this._discoveryBtn) {
+          const { x, y } = toCanvas(e.changedTouches[0]);
+          const b = this._discoveryBtn;
+          if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) this._endDiscovery();
+        }
+        return;
+      }
       e.preventDefault();
       const { x, y } = toCanvas(e.changedTouches[0]);
       if (inOval(x, y)) {
@@ -443,7 +507,7 @@ class Game {
     let idx = 0;
     for (let si = 0; si < SPELL_DEFS.length; si++) {
       const def = SPELL_DEFS[si];
-      if (!def?.itemDiv) continue;
+      if (!def?.itemDiv || !def.minLevel || def.minLevel > this._level) continue;
       const count = Math.max(1, Math.floor(side / def.itemDiv));
       for (let n = 0; n < count && idx < available.length; n++, idx++) {
         this._items.push({ ...available[idx], spellIndex: si });
@@ -461,40 +525,43 @@ class Game {
       const item = this._items[i];
       if (item.row === row && item.col === col) {
         const spell = this._spells[item.spellIndex];
-        if (spell) spell.count++;
+        if (spell) {
+          spell.count++;
+          if (!this._discoveredSpells.has(item.spellIndex) && !this._discovery) {
+            this._discoveredSpells.add(item.spellIndex);
+            this._discovery  = { spellIndex: item.spellIndex, startedAt: performance.now() };
+            this._pauseStart = performance.now();
+          }
+        }
         this._items.splice(i, 1);
       }
     }
   }
 
   _drawItems(ctx) {
+    const img = this._spriteSheet;
+    if (!img.complete || !img.naturalWidth) return;
+
     const { cell } = this.maze;
-    const now = performance.now();
+    const now  = performance.now();
+    const sw     = Math.floor(img.naturalWidth  / 5);
+    const sh     = Math.floor(img.naturalHeight / 2);
+    const aspect = sw / sh;
+    const size   = Math.max(14, Math.round(cell * 0.55));
+    const dw     = aspect >= 1 ? size : size * aspect;
+    const dh     = aspect >= 1 ? size / aspect : size;
 
     for (const item of this._items) {
       const cx    = (item.col + 0.5) * cell;
       const cy    = (item.row + 0.5) * cell;
-      const r     = Math.max(3, cell * 0.13);
+      const col   = item.spellIndex % 5;
+      const row   = Math.floor(item.spellIndex / 5);
       const pulse = 0.65 + 0.35 * Math.sin(now / 450 + item.col * 1.9 + item.row * 2.7);
-      const color = SPELL_DEFS[item.spellIndex]?.itemColor ?? '#ffffff';
-
-      const keyLabel = item.spellIndex < 9 ? String(item.spellIndex + 1) : '0';
 
       ctx.save();
-      ctx.globalAlpha  = pulse;
-      ctx.fillStyle    = color;
-      ctx.shadowColor  = color;
-      ctx.shadowBlur   = 10;
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.shadowBlur   = 0;
-      ctx.fillStyle    = '#0d0d1a';
-      ctx.font         = `bold ${Math.max(6, Math.round(r * 1.1))}px "Segoe UI",system-ui,sans-serif`;
-      ctx.textAlign    = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(keyLabel, cx, cy);
+      ctx.globalAlpha = pulse;
+      ctx.drawImage(img, col * sw, row * sh, sw, sh,
+                    cx - dw / 2, cy - dh / 2, dw, dh);
       ctx.restore();
     }
   }
@@ -508,15 +575,19 @@ class Game {
       const spell = this._spells[i];
       if (!spell) continue;
 
-      const remaining = spell.activeUntil > now ? (spell.activeUntil - now) / 1000 : 0;
-      const active    = remaining > 0;
-      const depleted  = spell.count === 0 && !active;
+      const discovered = this._discoveredSpells.has(i);
+      const remaining  = spell.activeUntil > now ? (spell.activeUntil - now) / 1000 : 0;
+      const active     = remaining > 0;
+      const depleted   = discovered && spell.count === 0 && !active;
 
       slot.classList.toggle('active',   active);
       slot.classList.toggle('depleted', depleted);
 
-      slot.querySelector('.sp-countdown').textContent = active ? remaining.toFixed(1) : '';
-      slot.querySelector('.sp-charges').textContent   = String(spell.count);
+      const icon = slot.querySelector('.sp-icon');
+      if (icon) icon.style.display = discovered ? 'block' : 'none';
+
+      slot.querySelector('.sp-countdown').textContent = (discovered && active) ? remaining.toFixed(1) : '';
+      slot.querySelector('.sp-charges').textContent   = discovered ? String(spell.count) : '';
     }
   }
 
@@ -542,8 +613,11 @@ class Game {
 
   _startNew() {
     this.overlay.classList.add('hidden');
-    this._won    = false;
-    this._startT = performance.now();
+    this._won        = false;
+    this._startT     = performance.now();
+    this._pausedMs   = 0;
+    this._pauseStart = null;
+    this._discovery  = null;
     this._heldDirs.clear();
     this._touchDir     = null;
     this._touchActive  = false;
@@ -576,7 +650,7 @@ class Game {
     if (this._won) return;
     this._won = true;
 
-    const elapsed   = (performance.now() - this._startT) / 1000;
+    const elapsed   = this._elapsedMs() / 1000;
     const { cols, rows } = this._settings();
     const threshold = (cols - 1) * (rows - 1) / 2;
     const bonus     = elapsed < threshold;
@@ -603,6 +677,7 @@ class Game {
       ? ` <span style="color:#00c853">+50 Zeitbonus</span>`
       : '';
     this.msgEl.innerHTML = `Ziel erreicht! Zeit: ${secsStr} s (+10${bonusPart})`;
+    document.getElementById('btn-start').textContent = 'next Level';
     this.overlay.classList.remove('hidden');
   }
 
@@ -610,12 +685,14 @@ class Game {
     this._rafId = requestAnimationFrame(() => this._loop());
 
     if (!this._won) {
-      this.timerEl.textContent = ((performance.now() - this._startT) / 1000).toFixed(1) + ' s';
-      const ghostSpell = this._spells[4];
-      this.player.phasing = !!(ghostSpell && ghostSpell.activeUntil > performance.now());
-      this.player.update(this._heldDirs);
-      this._checkItemPickup();
-      this._checkOpenedWall();
+      this.timerEl.textContent = (this._elapsedMs() / 1000).toFixed(1) + ' s';
+      if (!this._discovery) {
+        const ghostSpell = this._spells[4];
+        this.player.phasing = !!(ghostSpell && ghostSpell.activeUntil > performance.now());
+        this.player.update(this._heldDirs);
+        this._checkItemPickup();
+        this._checkOpenedWall();
+      }
     }
 
     this._draw();
@@ -699,8 +776,161 @@ class Game {
       }
     }
 
+    this._drawMiniMap(ctx);
+    this._drawDiscovery(ctx);
     this._drawTouchControls(ctx);
     this._updateSpellBar();
+  }
+
+  _drawMiniMap(ctx) {
+    const { cols, rows, cell: mazeCell, walls } = this.maze;
+    const vw = this.canvas.width;
+    const vh = this.canvas.height;
+
+    const maxSize = Math.min(vw * 0.22, vh * 0.22, 160);
+    const cs   = Math.max(2, Math.floor(maxSize / Math.max(cols, rows)));
+    const gap  = cs >= 4 ? 1 : 0;
+    const mapW = cols * cs;
+    const mapH = rows * cs;
+    const ox   = 10;
+    const oy   = 10;
+
+    ctx.save();
+
+    // Background + border
+    ctx.fillStyle   = 'rgba(5,5,15,0.75)';
+    ctx.fillRect(ox - 2, oy - 2, mapW + 4, mapH + 4);
+    ctx.strokeStyle = 'rgba(80,80,120,0.6)';
+    ctx.lineWidth   = 1;
+    ctx.strokeRect(ox - 2, oy - 2, mapW + 4, mapH + 4);
+
+    // Visited corridors
+    ctx.fillStyle = '#6a6a8a';
+    const visited = this.player.visitedCells;
+    for (const key of visited) {
+      const r = Math.floor(key / cols);
+      const c = key % cols;
+      ctx.fillRect(ox + c * cs, oy + r * cs, cs - gap, cs - gap);
+      if (gap) {
+        if (c + 1 < cols && !walls[r][c].E && visited.has(r * cols + c + 1))
+          ctx.fillRect(ox + (c + 1) * cs - gap, oy + r * cs, gap, cs - gap);
+        if (r + 1 < rows && !walls[r][c].S && visited.has((r + 1) * cols + c))
+          ctx.fillRect(ox + c * cs, oy + (r + 1) * cs - gap, cs - gap, gap);
+      }
+    }
+
+    // Items — langsam blinkende farbige Punkte
+    const now = performance.now();
+    for (const item of this._items) {
+      const color = SPELL_DEFS[item.spellIndex]?.itemColor ?? '#ffffff';
+      const blink = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(now / 900 + item.col + item.row));
+      ctx.globalAlpha = blink;
+      ctx.fillStyle   = color;
+      ctx.beginPath();
+      ctx.arc(ox + (item.col + 0.5) * cs, oy + (item.row + 0.5) * cs,
+              Math.max(1, cs * 0.5), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // Spieler-Dot in Roben-Farbe
+    ctx.fillStyle   = this._robeColor ?? '#ffffff';
+    ctx.shadowColor = this._robeColor ?? '#ffffff';
+    ctx.shadowBlur  = 5;
+    ctx.beginPath();
+    ctx.arc(ox + (this.player._cx / mazeCell) * cs,
+            oy + (this.player._cy / mazeCell) * cs,
+            Math.max(1.5, cs * 0.65), 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  _drawDiscovery(ctx) {
+    if (!this._discovery) return;
+    const def = SPELL_DEFS[this._discovery.spellIndex];
+    if (!def) return;
+
+    const age   = performance.now() - this._discovery.startedAt;
+    const alpha = Math.min(age / 250, 1);
+
+    const vw  = this.canvas.width;
+    const vh  = this.canvas.height;
+    const boxW      = Math.min(vw * 0.80, 460);
+    const titleSize = Math.max(18, Math.round(boxW * 0.085));
+    const descSize  = Math.max(12, Math.round(boxW * 0.052));
+    const btnSize   = Math.max(12, Math.round(boxW * 0.052));
+    const pad       = titleSize;
+    const lineH     = descSize * 1.5;
+    const btnH      = Math.round(btnSize * 2.2);
+    const btnW      = Math.round(boxW * 0.35);
+
+    // Word-wrap description
+    ctx.font = `${descSize}px "Segoe UI",system-ui,sans-serif`;
+    const words = def.description.split(' ');
+    const lines = [];
+    let line = '';
+    for (const w of words) {
+      const test = line ? line + ' ' + w : w;
+      if (ctx.measureText(test).width > boxW - pad * 2 && line) { lines.push(line); line = w; }
+      else line = test;
+    }
+    if (line) lines.push(line);
+
+    const subSize = Math.max(10, Math.round(boxW * 0.040));
+    const subH    = subSize * 1.6;
+    const boxH = pad + subH + titleSize + pad * 0.5 + lines.length * lineH + pad * 0.75 + btnH + pad;
+    const bx   = (vw - boxW) / 2;
+    const by   = (vh - boxH) / 2;
+
+    // Store OK-button rect for hit-testing
+    const okX = (vw - btnW) / 2;
+    const okY = by + boxH - pad - btnH;
+    this._discoveryBtn = { x: okX, y: okY, w: btnW, h: btnH };
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    // Panel background + border
+    ctx.fillStyle   = 'rgba(10,10,22,0.93)';
+    ctx.fillRect(bx, by, boxW, boxH);
+    ctx.strokeStyle = def.itemColor;
+    ctx.lineWidth   = 2;
+    ctx.strokeRect(bx, by, boxW, boxH);
+
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'top';
+
+    // Subtitle
+    ctx.font      = `${subSize}px "Segoe UI",system-ui,sans-serif`;
+    ctx.fillStyle = 'rgba(180,180,210,0.75)';
+    ctx.fillText('Du hast einen neuen Spell gefunden:', vw / 2, by + pad);
+
+    // Title
+    ctx.font        = `bold ${titleSize}px "Segoe UI",system-ui,sans-serif`;
+    ctx.fillStyle   = def.itemColor;
+    ctx.shadowColor = def.itemColor;
+    ctx.shadowBlur  = 14;
+    ctx.fillText(def.name.toUpperCase(), vw / 2, by + pad + subH);
+
+    // Description lines
+    ctx.shadowBlur = 0;
+    ctx.font       = `${descSize}px "Segoe UI",system-ui,sans-serif`;
+    ctx.fillStyle  = '#d0d0e8';
+    const descY    = by + pad + subH + titleSize + pad * 0.5;
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], vw / 2, descY + i * lineH);
+    }
+
+    // OK button
+    ctx.fillStyle   = def.itemColor;
+    ctx.fillRect(okX, okY, btnW, btnH);
+    ctx.fillStyle   = '#0a0a16';
+    ctx.font        = `bold ${btnSize}px "Segoe UI",system-ui,sans-serif`;
+    ctx.textBaseline = 'middle';
+    ctx.fillText('OK', vw / 2, okY + btnH / 2);
+
+    ctx.restore();
   }
 
   _drawFog(ctx, cx, cy, fogMult = 1, zoom = 1) {
