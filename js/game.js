@@ -53,6 +53,7 @@ class Game {
     this._hasTouch     = navigator.maxTouchPoints > 0;
     this._touchDir     = null;
     this._touchActive  = false;
+    this._touchFromTap = false;
 
     // Build spell-bar DOM slots
     this._spellBarEl   = document.getElementById('spell-bar');
@@ -162,7 +163,7 @@ class Game {
 
   _ovalGeometry() {
     const vw = this.canvas.width, vh = this.canvas.height;
-    const rx = Math.min(vw, vh) * 0.20;
+    const rx = Math.min(vw, vh) * 0.30;
     return { cx: vw / 2, cy: vh * 0.75, rx, ry: rx * 0.60 };
   }
 
@@ -182,10 +183,24 @@ class Game {
       return ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1;
     };
 
+    const dirFromPos = (x, y) => {
+      const { cx, cy, rx, ry } = this._ovalGeometry();
+      const ndx = (x - cx) / rx, ndy = (y - cy) / ry;
+      return Math.abs(ndx) > Math.abs(ndy) ? (ndx > 0 ? 'E' : 'W') : (ndy > 0 ? 'S' : 'N');
+    };
+
+    const clearDir = () => {
+      if (this._touchDir) this._heldDirs.delete(this._touchDir);
+      this._touchDir     = null;
+      this._touchFromTap = false;
+    };
+
     this.canvas.addEventListener('touchstart', e => {
       e.preventDefault();
       const { x, y } = toCanvas(e.changedTouches[0]);
       if (inOval(x, y)) {
+        // Cancel any persistent tap-movement before starting new gesture
+        if (this._touchFromTap) clearDir();
         this._touchActive = true;
         this._touchOriX   = e.changedTouches[0].clientX;
         this._touchOriY   = e.changedTouches[0].clientY;
@@ -211,26 +226,26 @@ class Game {
     }, { passive: false });
 
     this.canvas.addEventListener('touchend', e => {
-      // Tap (no swipe direction locked): move one step in tapped quadrant
-      if (this._touchActive && !this._touchDir) {
-        const { x, y } = toCanvas(e.changedTouches[0]);
-        const { cx, cy, rx, ry } = this._ovalGeometry();
-        const ndx = (x - cx) / rx;
-        const ndy = (y - cy) / ry;
-        const tapDir = Math.abs(ndx) > Math.abs(ndy)
-          ? (ndx > 0 ? 'E' : 'W')
-          : (ndy > 0 ? 'S' : 'N');
-        this._heldDirs.add(tapDir);
-        requestAnimationFrame(() => this._heldDirs.delete(tapDir));
+      if (this._touchActive) {
+        if (!this._touchDir) {
+          // Tap: set continuous movement in tapped direction
+          const { x, y } = toCanvas(e.changedTouches[0]);
+          if (inOval(x, y)) {
+            const tapDir = dirFromPos(x, y);
+            this._touchDir     = tapDir;
+            this._touchFromTap = true;
+            this._heldDirs.add(tapDir);
+          }
+        } else {
+          // Swipe released: stop movement
+          clearDir();
+        }
       }
-      if (this._touchDir) this._heldDirs.delete(this._touchDir);
-      this._touchDir    = null;
       this._touchActive = false;
     }, { passive: true });
 
     this.canvas.addEventListener('touchcancel', () => {
-      if (this._touchDir) this._heldDirs.delete(this._touchDir);
-      this._touchDir    = null;
+      clearDir();
       this._touchActive = false;
     }, { passive: true });
   }
@@ -544,8 +559,9 @@ class Game {
     this._won    = false;
     this._startT = performance.now();
     this._heldDirs.clear();
-    this._touchDir    = null;
-    this._touchActive = false;
+    this._touchDir     = null;
+    this._touchActive  = false;
+    this._touchFromTap = false;
 
     // Only cancel active spell effects; counts carry over between levels
     for (const spell of this._spells) {
@@ -625,7 +641,7 @@ class Game {
     const vh  = this.canvas.height;
     const vcx = vw / 2;
     const vcy = vh / 2;
-    const psy = this._hasTouch ? Math.round(vh * 0.20) : vcy; // player screen-y
+    const psy = this._hasTouch ? Math.round(vh * 0.40) : vcy; // player screen-y
     const px  = this.player._cx;
     const py  = this.player._cy;
 
