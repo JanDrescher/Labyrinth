@@ -58,18 +58,15 @@ export class Player {
     // Robe color: hex string, e.g. '#cc2200' for red. Default matches original sprite blue.
     this.robeColor = '#2b5aa8';
 
-    // Color sheet cache — one per direction
-    this._colorSheets     = {};
+    // Color sheet cache
+    this._colorSheet      = null;
     this._colorSheetColor = null;
 
-    // Sprites: one file per direction, 4 walk frames each
-    this._spriteImgs = {};
-    for (const [dir, file] of [['N','mage-n'],['S','mage-s'],['E','mage-e'],['W','mage-w']]) {
-      const img = new Image();
-      img.onload = () => { this._colorSheets = {}; };
-      img.src    = `img/${file}.png`;
-      this._spriteImgs[dir] = img;
-    }
+    // Sprite: single sheet, 4 columns (frames) × 4 rows (directions)
+    this._dirRow = { S: 0, N: 1, E: 2, W: 3 };
+    this._img    = new Image();
+    this._img.onload = () => { this._colorSheet = null; };
+    this._img.src    = 'img/warrior.png';
   }
 
   update(heldDirs) {
@@ -110,26 +107,27 @@ export class Player {
   }
 
   draw(ctx) {
-    const img = this._spriteImgs[this._facing];
+    const img = this._img;
     if (!img.complete || !img.naturalWidth) return;
 
     if (this._colorSheetColor !== this.robeColor) {
-      this._colorSheets     = {};
+      this._colorSheet      = null;
       this._colorSheetColor = this.robeColor;
     }
-    if (!this._colorSheets[this._facing]) {
-      this._colorSheets[this._facing] = this._buildColorSheet(img);
+    if (!this._colorSheet) {
+      this._colorSheet = this._buildColorSheet(img);
     }
 
-    const sheet = this._colorSheets[this._facing];
-    const FW    = Math.round(img.naturalWidth / 4);
-    const FH    = img.naturalHeight;
+    const sheet = this._colorSheet;
+    const FW    = Math.round(img.naturalWidth  / 4);
+    const FH    = Math.round(img.naturalHeight / 4);
+    const row   = this._dirRow[this._facing];
     const cell  = this.maze.cell;
     const size  = Math.max(8, cell * 0.80);
 
     ctx.save();
     ctx.translate(this._cx, this._cy);
-    ctx.drawImage(sheet, this._animFrame * FW, 0, FW, FH, -size / 2, -size / 2, size, size);
+    ctx.drawImage(sheet, this._animFrame * FW, row * FH, FW, FH, -size / 2, -size / 2, size, size);
     ctx.restore();
   }
 
