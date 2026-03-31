@@ -16,12 +16,12 @@ const FOG_COLOR = '13,13,26';
 const SPELL_DEFS = [
   { name: 'Pfad',        duration: 5,  initialCount: 0, itemColor: '#4dd0e1', itemDiv: 10, minLevel: 1, description: 'zeigt den Lösungspfad für 5 Sekunden an' },
   { name: 'Sackgasse',   duration: 20, initialCount: 0, itemColor: '#66bb6a', itemDiv:  5, minLevel: 1, description: 'zeigt für 20 Sekunden Sackgassen im Sichtbereich an' },
-  { name: 'Sprung',      duration: 5,  initialCount: 0, itemColor: '#ff7043', itemDiv:  8, minLevel: 3, description: 'zoomt die Kamera für 5 Sekunden heraus' },
-  { name: 'Pforte',      duration: 5,  initialCount: 0, itemColor: '#a1887f', itemDiv:  9, minLevel: 5, description: 'öffnet eine Wand in Blickrichtung für 5 Sekunden' },
-  { name: 'Geist',       duration: 6,  initialCount: 0, itemColor: '#ba68c8', itemDiv:  9, minLevel: 7, description: 'du kannst für 6 Sekunden durch Wände gehen' },
-  { name: 'Leuchtfeuer', duration: 0,  initialCount: 0, itemColor: '#ffab40', itemDiv:  6 },
-  { name: 'Orakel',      duration: 4,  initialCount: 0, itemColor: '#fff176', itemDiv: 12 },
-  { name: 'Rückkehr',    duration: 0,  initialCount: 0, itemColor: '#ffd54f', itemDiv:  7 },
+  { name: 'Sprung',      duration: 5,  initialCount: 0, itemColor: '#ff7043', itemDiv:  8, minLevel: 2, description: 'zoomt die Kamera für 5 Sekunden heraus' },
+  { name: 'Pforte',      duration: 5,  initialCount: 0, itemColor: '#a1887f', itemDiv:  9, minLevel: 3, description: 'öffnet eine Wand in Blickrichtung für 5 Sekunden' },
+  { name: 'Geist',       duration: 6,  initialCount: 0, itemColor: '#ba68c8', itemDiv:  9, minLevel: 4, description: 'du kannst für 6 Sekunden durch Wände gehen' },
+  { name: 'Leuchtfeuer', duration: 0,  initialCount: 0, itemColor: '#ffab40', itemDiv:  6, minLevel: 5, description: 'platziert einen dauerhaften Leuchtpunkt' },
+  { name: 'Orakel',      duration: 4,  initialCount: 0, itemColor: '#fff176', itemDiv: 12, minLevel: 6, description: 'entfernt den Nebel für 4 Sekunden vollständig' },
+  { name: 'Rückkehr',    duration: 0,  initialCount: 0, itemColor: '#ffd54f', itemDiv:  7, minLevel: 7, description: 'teleportiert dich sofort zum Eingang' },
   null,
   null,
 ];
@@ -35,9 +35,10 @@ class Game {
     this.ctx      = this.canvas.getContext('2d');
     this.overlay  = document.getElementById('overlay');
     this.msgEl    = document.getElementById('overlay-msg');
-    this.timerEl  = document.getElementById('timer');
-    this.scoreEl  = document.getElementById('score');
-    this.levelEl  = document.getElementById('level');
+    this.timerEl    = document.getElementById('timer');
+    this.scoreEl    = document.getElementById('score');
+    this.levelEl    = document.getElementById('level');
+    this.itemsLeftEl = document.getElementById('items-left');
     this._wrap    = document.getElementById('canvas-wrap');
 
     this._heldDirs = new Set();
@@ -46,6 +47,7 @@ class Game {
       d ? { ...d, count: d.initialCount, activeUntil: 0 } : null
     );
     this._items        = [];
+    this._itemPickups  = [];
     this._spriteSheet  = new Image();
     this._spriteSheet.src = 'img/spell-sprite.png';
     this._openedWall   = null;
@@ -513,6 +515,20 @@ class Game {
         this._items.push({ ...available[idx], spellIndex: si });
       }
     }
+    this._updateItemsLeft();
+  }
+
+  _updateItemsLeft() {
+    this.itemsLeftEl.textContent = String(this._items.length);
+  }
+
+  _flashScore() {
+    this.scoreEl.classList.remove('flash');
+    void this.scoreEl.offsetWidth; // reflow to restart animation
+    this.scoreEl.classList.add('flash');
+    this.scoreEl.addEventListener('animationend', () => {
+      this.scoreEl.classList.remove('flash');
+    }, { once: true });
   }
 
   _checkItemPickup() {
@@ -533,7 +549,17 @@ class Game {
             this._pauseStart = performance.now();
           }
         }
+        this._itemPickups.push({
+          cx: (item.col + 0.5) * this.maze.cell,
+          cy: (item.row + 0.5) * this.maze.cell,
+          spellIndex: item.spellIndex,
+          startedAt: performance.now(),
+        });
         this._items.splice(i, 1);
+        this._updateItemsLeft();
+        this._score += 10;
+        this.scoreEl.textContent = String(this._score);
+        this._flashScore();
       }
     }
   }
@@ -562,6 +588,24 @@ class Game {
       ctx.globalAlpha = pulse;
       ctx.drawImage(img, col * sw, row * sh, sw, sh,
                     cx - dw / 2, cy - dh / 2, dw, dh);
+      ctx.restore();
+    }
+
+    // Pickup pop animations
+    const POP_DUR = 480;
+    this._itemPickups = this._itemPickups.filter(p => now - p.startedAt < POP_DUR);
+    for (const p of this._itemPickups) {
+      const t     = (now - p.startedAt) / POP_DUR; // 0→1
+      const scale = 1 + 0.7 * Math.sin(t * Math.PI);
+      const alpha = 1 - t;
+      const pcol  = p.spellIndex % 5;
+      const prow  = Math.floor(p.spellIndex / 5);
+      const pdw   = dw * scale;
+      const pdh   = dh * scale;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(img, pcol * sw, prow * sh, sw, sh,
+                    p.cx - pdw / 2, p.cy - pdh / 2, pdw, pdh);
       ctx.restore();
     }
   }
@@ -655,7 +699,7 @@ class Game {
     const threshold = (cols - 1) * (rows - 1) / 2;
     const bonus     = elapsed < threshold;
 
-    this._score += 10 + (bonus ? 50 : 0);
+    this._score += 20 + (bonus ? 50 : 0);
     this.scoreEl.textContent = String(this._score);
 
     this._level++;
@@ -676,7 +720,7 @@ class Game {
     const bonusPart = bonus
       ? ` <span style="color:#00c853">+50 Zeitbonus</span>`
       : '';
-    this.msgEl.innerHTML = `Ziel erreicht! Zeit: ${secsStr} s (+10${bonusPart})`;
+    this.msgEl.innerHTML = `Ziel erreicht! Zeit: ${secsStr} s (+20${bonusPart})`;
     document.getElementById('btn-start').textContent = 'next Level';
     this.overlay.classList.remove('hidden');
   }
@@ -776,13 +820,13 @@ class Game {
       }
     }
 
-    this._drawMiniMap(ctx);
+    this._drawMiniMap(ctx, solutionAlpha);
     this._drawDiscovery(ctx);
     this._drawTouchControls(ctx);
     this._updateSpellBar();
   }
 
-  _drawMiniMap(ctx) {
+  _drawMiniMap(ctx, solutionAlpha = 0) {
     const { cols, rows, cell: mazeCell, walls } = this.maze;
     const vw = this.canvas.width;
     const vh = this.canvas.height;
@@ -816,6 +860,29 @@ class Game {
           ctx.fillRect(ox + (c + 1) * cs - gap, oy + r * cs, gap, cs - gap);
         if (r + 1 < rows && !walls[r][c].S && visited.has((r + 1) * cols + c))
           ctx.fillRect(ox + c * cs, oy + (r + 1) * cs - gap, cs - gap, gap);
+      }
+    }
+
+    // Solution path overlay
+    if (solutionAlpha > 0) {
+      const path = this.maze.solution();
+      const lineW = cs / 5;
+      if (lineW >= 0.5) {
+        ctx.save();
+        ctx.strokeStyle = '#e53935';
+        ctx.lineWidth   = lineW;
+        ctx.lineJoin    = 'round';
+        ctx.lineCap     = 'round';
+        ctx.globalAlpha = solutionAlpha;
+        ctx.beginPath();
+        for (let i = 0; i < path.length; i++) {
+          const [r, c] = path[i];
+          const x = ox + (c + 0.5) * cs;
+          const y = oy + (r + 0.5) * cs;
+          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.restore();
       }
     }
 
@@ -881,7 +948,12 @@ class Game {
     const subH    = subSize * 1.6;
     const boxH = pad + subH + titleSize + pad * 0.5 + lines.length * lineH + pad * 0.75 + btnH + pad;
     const bx   = (vw - boxW) / 2;
-    const by   = (vh - boxH) / 2;
+    let   by   = (vh - boxH) / 2;
+    if (this._hasTouch) {
+      const ry      = Math.min(vw, vh) * 0.30 * 0.60;
+      const ovalTop = vh * 0.70 - ry;
+      by = Math.max(8, ovalTop - boxH - 16);
+    }
 
     // Store OK-button rect for hit-testing
     const okX = (vw - btnW) / 2;

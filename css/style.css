@@ -119,7 +119,8 @@ input[type="range"]:hover::-webkit-slider-thumb { background: #1e88e5; }
   text-align: right;
 }
 
-#level {
+#level,
+#items-left {
   font-variant-numeric: tabular-nums;
   font-size: 1.05rem;
   color: var(--text);
@@ -257,6 +258,18 @@ button:active { filter: brightness(.9); }
 #btn-solution[aria-pressed="true"] {
   background: #b71c1c;
   box-shadow: 0 0 8px rgba(229, 57, 53, .5);
+}
+
+/* ── Score flash animation ───────────────────────────── */
+
+@keyframes score-flash {
+  0%   { transform: scale(1);    color: var(--text); }
+  30%  { transform: scale(1.45); color: #ffd54f; }
+  100% { transform: scale(1);    color: var(--text); }
+}
+
+#score.flash {
+  animation: score-flash 420ms ease-out forwards;
 }
 
 /* ── Controls hint ───────────────────────────────────── */
