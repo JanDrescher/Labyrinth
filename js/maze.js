@@ -21,8 +21,10 @@ export class Maze {
     );
 
     const stack = [];
-    visited[0][0] = true;
-    stack.push([0, 0]);
+    const sr = Math.floor(Math.random() * this.rows);
+    const sc = Math.floor(Math.random() * this.cols);
+    visited[sr][sc] = true;
+    stack.push([sr, sc]);
 
     while (stack.length > 0) {
       const [r, c]    = stack[stack.length - 1];
