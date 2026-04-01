@@ -1,6 +1,6 @@
 # Maze Of Mages – Projektdokumentation
 
-**Stand:** 2026-03-31 (aktualisiert 2)
+**Stand:** 2026-04-01 (aktualisiert)
 **Pfad:** `/home/admin/Labyrinth/` — Git-Repo, Entwicklung und Live-Version (Apache zeigt direkt hierher)
 **Erreichbar unter:** `http://localhost:4000` — Apache-VirtualHost, startet automatisch mit dem System.
 **Online (GitHub Pages):** `https://JanDrescher.github.io/Labyrinth/` — wird automatisch aktualisiert bei jedem Push auf `main`.
@@ -147,16 +147,16 @@ Frame-Wechsel alle 150 ms bei Bewegung, Frame 0 im Stand. Gezeichnet in Screengr
 
 | Slot | Taste | Name        | Dauer | minLevel | itemDiv | Farbe     | Beschreibung |
 |------|-------|-------------|-------|----------|---------|-----------|--------------|
-| 0    | 1     | Pfad        | 5 s   | 1        | 10      | `#4dd0e1` | Lösungspfad anzeigen, Fade ab 2 s |
+| 0    | 1     | Pfad        | 5 s   | 1        | 12      | `#4dd0e1` | Lösungspfad anzeigen, Fade ab 2 s |
 | 1    | 2     | Sackgasse   | 20 s  | 1        | 5       | `#66bb6a` | Sackgassen ausgrauen, Fade ab 3 s |
 | 2    | 3     | Sprung      | 5 s   | 2        | 8       | `#ff7043` | Kamera zoomt organisch raus (sin-Kurve) |
 | 3    | 4     | Pforte      | 5 s   | 3        | 9       | `#a1887f` | Eine Wand in Blickrichtung öffnen |
 | 4    | 5     | Geist       | 6 s   | 4        | 9       | `#ba68c8` | Spieler kann alle Wände durchqueren |
 | 5    | 6     | Leuchtfeuer | —     | 5        | 6       | `#ffab40` | Dauerhafter Leuchtpunkt |
-| 6    | 7     | Orakel      | 4 s   | 6        | 12      | `#fff176` | Fog komplett entfernen |
-| 7    | 8     | Rückkehr    | —     | 7        | 7       | `#ffd54f` | Sofort-Teleport zum Eingang |
-| 8    | —     | (leer)      | —     | —        | —       | —         | — |
-| 9    | —     | (leer)      | —     | —        | —       | —         | — |
+| 6    | 7     | Orakel      | 4 s   | 6        | 9       | `#fff176` | Fog komplett entfernen |
+| 7    | 8     | Pfadmitte   | —     | 7        | 10      | `#ffd54f` | Teleport zur Mitte des kürzesten Lösungspfades |
+| 8    | 9     | Waffe       | —     | 8        | 8       | `#e53935` | Platzhalter — Effekt folgt mit NPC-System |
+| 9    | 0     | Schild      | —     | 9        | 10      | `#42a5f5` | Platzhalter — Effekt folgt mit NPC-System |
 
 **Spell-Counts** werden nicht zwischen Leveln zurückgesetzt.
 **Aktivierung:** Tasten 1–0 (Desktop) oder Tap auf Spell-Slot (Mobil). Interner Helper `_triggerSpell(idx)`.
@@ -184,6 +184,8 @@ Aufnahme durch Drüberlaufen → +1 Ladung + **10 Punkte** + Score-Flash-Animati
 **Pickup-Animation:** Beim Aufsammeln erscheint das Sprite kurz skaliert (bis 1,7×) und blendet über 480 ms aus (`_itemPickups`-Array, world space).
 
 Darstellung: Spell-Sprite aus `img/spell-sprite.png` in Originalproportionen, langsam pulsierend.
+
+**Item-Respawn:** Jedes aufgesammelte Item erscheint nach einer Wartezeit an einer zufälligen freien Zelle neu (nicht Eingang, nicht Ausgang, nicht auf bestehenden Items). Wartezeit: `level × 60s × 1.5^(n−1)`, wobei `n` = wie oft dieser Spell-Typ bisher eingesammelt wurde. Verhindert Farming — jeder weitere Fund desselben Items dauert 50% länger. `_pickupCounts` (Array, per Spell-Typ) persistiert über Level-Wechsel. `_pendingRespawns` wird bei Level-Wechsel geleert.
 
 **Spell-Sprite-Sheet:** `img/spell-sprite.png` — 1376×768 px, 5 Spalten × 2 Reihen.
 Sprite-Index entspricht Spell-Index (0–9, zeilenweise von links oben).

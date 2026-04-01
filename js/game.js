@@ -14,16 +14,16 @@ const FOG_COLOR = '13,13,26';
 // initialCount: charges the player starts the whole game with (not reset between levels)
 // itemDiv: items per maze = floor(sqrt(area) / itemDiv); omit → no items
 const SPELL_DEFS = [
-  { name: 'Pfad',        duration: 5,  initialCount: 0, itemColor: '#4dd0e1', itemDiv: 10, minLevel: 1, description: 'zeigt den Lösungspfad für 5 Sekunden an' },
+  { name: 'Pfad',        duration: 5,  initialCount: 0, itemColor: '#4dd0e1', itemDiv: 12, minLevel: 1, description: 'zeigt den Lösungspfad für 5 Sekunden an' },
   { name: 'Sackgasse',   duration: 20, initialCount: 0, itemColor: '#66bb6a', itemDiv:  5, minLevel: 1, description: 'zeigt für 20 Sekunden Sackgassen im Sichtbereich an' },
   { name: 'Sprung',      duration: 5,  initialCount: 0, itemColor: '#ff7043', itemDiv:  8, minLevel: 2, description: 'zoomt die Kamera für 5 Sekunden heraus' },
   { name: 'Pforte',      duration: 5,  initialCount: 0, itemColor: '#a1887f', itemDiv:  9, minLevel: 3, description: 'öffnet eine Wand in Blickrichtung für 5 Sekunden' },
   { name: 'Geist',       duration: 6,  initialCount: 0, itemColor: '#ba68c8', itemDiv:  9, minLevel: 4, description: 'du kannst für 6 Sekunden durch Wände gehen' },
   { name: 'Leuchtfeuer', duration: 0,  initialCount: 0, itemColor: '#ffab40', itemDiv:  6, minLevel: 5, description: 'platziert einen dauerhaften Leuchtpunkt' },
-  { name: 'Orakel',      duration: 4,  initialCount: 0, itemColor: '#fff176', itemDiv: 12, minLevel: 6, description: 'entfernt den Nebel für 4 Sekunden vollständig' },
-  { name: 'Rückkehr',    duration: 0,  initialCount: 0, itemColor: '#ffd54f', itemDiv:  7, minLevel: 7, description: 'teleportiert dich sofort zum Eingang' },
-  null,
-  null,
+  { name: 'Orakel',      duration: 4,  initialCount: 0, itemColor: '#fff176', itemDiv:  9, minLevel: 6, description: 'entfernt den Nebel für 4 Sekunden vollständig' },
+  { name: 'Pfadmitte', duration: 0, initialCount: 0, itemColor: '#ffd54f', itemDiv: 10, minLevel: 7, description: 'teleportiert dich zur Mitte des kürzesten Lösungspfades' },
+  { name: 'Waffe',    duration: 0, initialCount: 0, itemColor: '#e53935', itemDiv:  8, minLevel: 8, description: 'kommt bald…' },
+  { name: 'Schild',   duration: 0, initialCount: 0, itemColor: '#42a5f5', itemDiv: 10, minLevel: 9, description: 'kommt bald…' },
 ];
 
 // Sprung spell: how far the camera zooms out at peak (0 = no zoom, 1 = full)
@@ -46,8 +46,10 @@ class Game {
     this._spells   = SPELL_DEFS.map(d =>
       d ? { ...d, count: d.initialCount, activeUntil: 0 } : null
     );
-    this._items        = [];
-    this._itemPickups  = [];
+    this._items           = [];
+    this._itemPickups     = [];
+    this._pendingRespawns = [];
+    this._pickupCounts    = new Array(10).fill(0);  // per spell type, carries over between levels
     this._spriteSheet  = new Image();
     this._spriteSheet.src = 'img/spell-sprite.png';
     this._openedWall   = null;
@@ -213,6 +215,7 @@ class Game {
     if      (idx === 3) this._activateWallSpell();
     else if (idx === 5) this._activateLightSpell();
     else if (idx === 7) this._activateReturnSpell();
+    else if (idx === 8 || idx === 9) return;   // not yet implemented
     else                this._activateSpell(idx);
   }
 
@@ -459,21 +462,24 @@ class Game {
     }
   }
 
-  // ── Rückkehr (Spell 8) — instant teleport to entrance ───
+  // ── Pfadmitte (Spell 8) — teleport to midpoint of solution path ───
 
   _activateReturnSpell() {
     const spell = this._spells[7];
     if (!spell || spell.count <= 0) return;
 
-    const { cell, cols, rows } = this.maze;
-    const mid = Math.floor(cols / 2);
-    this.player._cx     = (mid + 0.5) * cell;
-    this.player._cy     = (rows - 0.5) * cell;
+    const path = this.maze.solution();
+    if (!path || path.length === 0) return;
+
+    const [row, col] = path[Math.floor(path.length / 2)];
+    const { cell } = this.maze;
+    this.player._cx     = (col + 0.5) * cell;
+    this.player._cy     = (row + 0.5) * cell;
     this.player._facing = 'N';
 
     spell.count--;
-    spell.activeUntil    = performance.now() + 400;  // brief flash indicator
-    this._teleportFlash  = performance.now();
+    spell.activeUntil   = performance.now() + 400;  // brief flash indicator
+    this._teleportFlash = performance.now();
   }
 
   _getSpellAlpha(index, fadeSecs) {
@@ -522,6 +528,37 @@ class Game {
     this.itemsLeftEl.textContent = String(this._items.length);
   }
 
+  _randomFreeCell() {
+    const { cols, rows } = this.maze;
+    const mid      = Math.floor(cols / 2);
+    const occupied = new Set(this._items.map(it => it.row * cols + it.col));
+    occupied.add((rows - 1) * cols + mid);  // entrance
+    occupied.add(mid);                       // exit (row 0)
+
+    const candidates = [];
+    for (let r = 0; r < rows; r++)
+      for (let c = 0; c < cols; c++)
+        if (!occupied.has(r * cols + c)) candidates.push({ row: r, col: c });
+
+    if (!candidates.length) return null;
+    return candidates[Math.floor(Math.random() * candidates.length)];
+  }
+
+  _tickRespawns() {
+    const now = performance.now();
+    for (let i = this._pendingRespawns.length - 1; i >= 0; i--) {
+      const p = this._pendingRespawns[i];
+      if (now >= p.respawnAt) {
+        const cell = this._randomFreeCell();
+        if (cell) {
+          this._items.push({ ...cell, spellIndex: p.spellIndex });
+          this._updateItemsLeft();
+        }
+        this._pendingRespawns.splice(i, 1);
+      }
+    }
+  }
+
   _flashScore() {
     this.scoreEl.classList.remove('flash');
     void this.scoreEl.offsetWidth; // reflow to restart animation
@@ -554,6 +591,11 @@ class Game {
           cy: (item.row + 0.5) * this.maze.cell,
           spellIndex: item.spellIndex,
           startedAt: performance.now(),
+        });
+        const n = ++this._pickupCounts[item.spellIndex];
+        this._pendingRespawns.push({
+          spellIndex: item.spellIndex,
+          respawnAt: performance.now() + this._level * 60 * 1000 * Math.pow(1.5, n - 1),
         });
         this._items.splice(i, 1);
         this._updateItemsLeft();
@@ -671,9 +713,10 @@ class Game {
     for (const spell of this._spells) {
       if (spell) spell.activeUntil = 0;
     }
-    this._openedWall = null;
-    this._beacons    = [];
-    this._fogCanvas  = null;
+    this._openedWall      = null;
+    this._beacons         = [];
+    this._fogCanvas       = null;
+    this._pendingRespawns = [];
 
     this._fitCanvas();
 
@@ -736,6 +779,7 @@ class Game {
         this.player.update(this._heldDirs);
         this._checkItemPickup();
         this._checkOpenedWall();
+        this._tickRespawns();
       }
     }
 

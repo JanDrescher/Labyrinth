@@ -91,8 +91,18 @@ input[type="range"]:hover::-webkit-slider-thumb { background: #1e88e5; }
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 1.4rem;
+  gap: .9rem;
   font-size: .82rem;
+  color: var(--muted);
+}
+
+.hud-item {
+  display: flex;
+  align-items: center;
+  gap: .25rem;
+}
+
+.hud-label {
   color: var(--muted);
 }
 
