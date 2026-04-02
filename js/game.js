@@ -29,6 +29,18 @@ const SPELL_DEFS = [
 // Sprung spell: how far the camera zooms out at peak (0 = no zoom, 1 = full)
 const JUMP_ZOOM_OUT = 0.55;
 
+// NPC
+const NPC_MIN_LEVEL   = 1;
+const NPC_FRAME_COUNT = 6;
+const NPC_ANIM_MS     = 110;   // ms per animation frame
+const NPC_DIR_DELTA   = { N: [-1, 0], S: [1, 0], E: [0, 1], W: [0, -1] };
+//                      speed   mapColor    glowColor   glowBlur  alpha  bgTol
+const NPC_DEFS = [
+  { src: 'img/npc1.png', speed: 1.5, mapColor: '#4fc3f7', glowColor: '#4fc3f7', glowBlur: 18, alpha: 1.0, bgTol: 50 },
+  { src: 'img/npc2.png', speed: 1.5, mapColor: '#ffd740', glowColor: '#ffd740', glowBlur: 14, alpha: 1.0, bgTol: 30 },
+  { src: 'img/npc3.png', speed: 1.0, mapColor: '#69f0ae', glowColor: '#69f0ae', glowBlur: 12, alpha: 0.9, bgTol: 30 },
+];
+
 class Game {
   constructor() {
     this.canvas   = document.getElementById('maze-canvas');
@@ -52,6 +64,13 @@ class Game {
     this._pickupCounts    = new Array(10).fill(0);  // per spell type, carries over between levels
     this._spriteSheet  = new Image();
     this._spriteSheet.src = 'img/spell-sprite.png';
+    this._npcSprites = new Array(NPC_DEFS.length).fill(null);  // must exist before any onload fires
+    NPC_DEFS.forEach((def, i) => {
+      const img = new Image();
+      img.onload = () => { this._npcSprites[i] = this._removeBackground(img, def.bgTol); };
+      img.src = def.src;
+    });
+    this._npcs = [];
     this._openedWall   = null;
     this._teleportFlash = 0;
     this._beacons      = [];
@@ -462,6 +481,119 @@ class Game {
     }
   }
 
+  // ── NPC ──────────────────────────────────────────────────
+
+  // Removes a solid background color from a sprite by making matching pixels transparent.
+  // Returns a canvas element usable as an image source for drawImage.
+  _removeBackground(img, bgTol = 50) {
+    const oc  = document.createElement('canvas');
+    oc.width  = img.naturalWidth;
+    oc.height = img.naturalHeight;
+    const octx = oc.getContext('2d');
+    octx.drawImage(img, 0, 0);
+    const id = octx.getImageData(0, 0, oc.width, oc.height);
+    const d  = id.data;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i+3] === 0) continue;
+      const maxDiff = Math.max(Math.abs(d[i]-d[i+1]), Math.abs(d[i+1]-d[i+2]), Math.abs(d[i]-d[i+2]));
+      if (maxDiff < bgTol) d[i+3] = 0;
+    }
+    octx.putImageData(id, 0, 0);
+    return oc;
+  }
+
+  _spawnNpcs() {
+    this._npcs = [];
+    if (this._level < NPC_MIN_LEVEL) return;
+    const { cols, rows, cell } = this.maze;
+    const mid = Math.floor(cols / 2);
+    const usedCells = new Set();
+    usedCells.add((rows - 1) * cols + mid);  // entrance
+    usedCells.add(mid);                       // exit
+
+    for (let spriteIndex = 0; spriteIndex < 3; spriteIndex++) {
+      let row, col;
+      do {
+        row = Math.floor(Math.random() * rows);
+        col = Math.floor(Math.random() * cols);
+      } while (usedCells.has(row * cols + col));
+      usedCells.add(row * cols + col);
+
+      const cx = (col + 0.5) * cell;
+      const cy = (row + 0.5) * cell;
+      this._npcs.push({ cx, cy, row, col, targetCx: cx, targetCy: cy,
+                        animFrame: 0, animT: performance.now(), lastDir: null,
+                        spriteIndex, speed: NPC_DEFS[spriteIndex].speed });
+    }
+  }
+
+  _updateNpcs() {
+    const { cell, walls, cols, rows } = this.maze;
+    const now = performance.now();
+
+    for (const npc of this._npcs) {
+      // Animate
+      if (now - npc.animT > NPC_ANIM_MS) {
+        npc.animFrame = (npc.animFrame + 1) % NPC_FRAME_COUNT;
+        npc.animT = now;
+      }
+
+      // Move toward target cell center
+      const dx   = npc.targetCx - npc.cx;
+      const dy   = npc.targetCy - npc.cy;
+      const dist = Math.hypot(dx, dy);
+
+      if (dist <= npc.speed) {
+        // Snap to center, pick next direction
+        npc.cx  = npc.targetCx;
+        npc.cy  = npc.targetCy;
+        npc.row = Math.round((npc.cy / cell) - 0.5);
+        npc.col = Math.round((npc.cx / cell) - 0.5);
+
+        // Available exits, preferring not to reverse unless forced
+        const REVERSE = { N: 'S', S: 'N', E: 'W', W: 'E' };
+        const dirs = Object.keys(NPC_DIR_DELTA).filter(d => {
+          if (walls[npc.row][npc.col][d]) return false;
+          const [dr, dc] = NPC_DIR_DELTA[d];
+          const nr = npc.row + dr, nc = npc.col + dc;
+          return nr >= 0 && nr < rows && nc >= 0 && nc < cols;
+        });
+        const forward = dirs.filter(d => d !== REVERSE[npc.lastDir]);
+        const pool    = forward.length ? forward : dirs;
+        if (pool.length) {
+          const dir = pool[Math.floor(Math.random() * pool.length)];
+          const [dr, dc] = NPC_DIR_DELTA[dir];
+          npc.targetCx  = ((npc.col + dc) + 0.5) * cell;
+          npc.targetCy  = ((npc.row + dr) + 0.5) * cell;
+          npc.lastDir   = dir;
+        }
+      } else {
+        npc.cx += (dx / dist) * npc.speed;
+        npc.cy += (dy / dist) * npc.speed;
+      }
+    }
+  }
+
+  _drawNpcs(ctx) {
+    const { cell } = this.maze;
+    const size = cell * 0.85;
+
+    for (const npc of this._npcs) {
+      const img = this._npcSprites[npc.spriteIndex];
+      if (!img) continue;
+      const def = NPC_DEFS[npc.spriteIndex];
+      const fw  = Math.floor(img.width / NPC_FRAME_COUNT);
+      const fh  = img.height;
+      ctx.save();
+      ctx.globalAlpha = def.alpha;
+      ctx.shadowColor = def.glowColor;
+      ctx.shadowBlur  = def.glowBlur;
+      ctx.drawImage(img, npc.animFrame * fw, 0, fw, fh,
+                    npc.cx - size / 2, npc.cy - size / 2, size, size);
+      ctx.restore();
+    }
+  }
+
   // ── Pfadmitte (Spell 8) — teleport to midpoint of solution path ───
 
   _activateReturnSpell() {
@@ -728,6 +860,7 @@ class Game {
     this.player.robeColor = this._robeColor;
 
     this._placeItems();
+    this._spawnNpcs();
 
     if (this._rafId) cancelAnimationFrame(this._rafId);
     this._loop();
@@ -777,6 +910,7 @@ class Game {
         const ghostSpell = this._spells[4];
         this.player.phasing = !!(ghostSpell && ghostSpell.activeUntil > performance.now());
         this.player.update(this._heldDirs);
+        this._updateNpcs();
         this._checkItemPickup();
         this._checkOpenedWall();
         this._tickRespawns();
@@ -823,6 +957,7 @@ class Game {
     this._drawBeacons(ctx);
     this._drawOpenedWall(ctx);
     this._drawItems(ctx);
+    this._drawNpcs(ctx);
 
     const { fog, fade } = this._settings();
     // During jump the screen fog circle covers more world pixels → scale radius
@@ -943,6 +1078,19 @@ class Game {
       ctx.fill();
     }
     ctx.globalAlpha = 1;
+
+    // NPC-Dots
+    for (const npc of this._npcs) {
+      const npcColor  = NPC_DEFS[npc.spriteIndex].mapColor;
+      ctx.fillStyle   = npcColor;
+      ctx.shadowColor = npcColor;
+      ctx.shadowBlur  = 5;
+      ctx.beginPath();
+      ctx.arc(ox + (npc.cx / mazeCell) * cs,
+              oy + (npc.cy / mazeCell) * cs,
+              Math.max(1.5, cs * 0.65), 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     // Spieler-Dot in Roben-Farbe
     ctx.fillStyle   = this._robeColor ?? '#ffffff';

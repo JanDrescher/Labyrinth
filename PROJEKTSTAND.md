@@ -1,6 +1,6 @@
 # Maze Of Mages – Projektdokumentation
 
-**Stand:** 2026-04-01 (aktualisiert)
+**Stand:** 2026-04-02 (aktualisiert, Session 2)
 **Pfad:** `/home/admin/Labyrinth/` — Git-Repo, Entwicklung und Live-Version (Apache zeigt direkt hierher)
 **Erreichbar unter:** `http://localhost:4000` — Apache-VirtualHost, startet automatisch mit dem System.
 **Online (GitHub Pages):** `https://JanDrescher.github.io/Labyrinth/` — wird automatisch aktualisiert bei jedem Push auf `main`.
@@ -24,11 +24,14 @@ Labyrinth/
 │   └── style.css      Layout, Themes, Slider-Styling, Mobile-Media-Query
 ├── img/
 │   ├── mage-s/n/e/w.png   Spieler-Sprites (4 Richtungen, je 4 Walk-Frames)
-│   └── spell-sprite.png   Spell-Icons Spritesheet (1376×768, 5×2 Grid, 10 Spells)
+│   ├── spell-sprite.png   Spell-Icons Spritesheet (1376×768, 5×2 Grid, 10 Spells)
+│   ├── npc1.png           NPC1-Sprite (blauer Energie-Orb, 6 Frames, 2544×416 px)
+│   ├── npc2.png           NPC2-Sprite (goldener Stern, 6 Frames, 2544×416 px)
+│   └── npc3.png           NPC3-Sprite (grüner Schleim-Geist, 6 Frames, 2544×416 px)
 └── js/
     ├── maze.js        Labyrinth-Generator, Renderer, BFS-Löser, Dead-End-Erkennung
     ├── player.js      Spieler: Bewegung, Kollision, Darstellung, visitedCells, phasing
-    └── game.js        Game-Loop, Kamera, Fog-of-War, Spells, Items, Beacons, UI, Touch
+    └── game.js        Game-Loop, Kamera, Fog-of-War, Spells, Items, Beacons, UI, Touch, NPCs
 ```
 
 ---
@@ -236,6 +239,23 @@ Offscreen-Canvas-Ansatz mit `destination-out` für mehrere Lichtquellen:
 - Lichtradius: `max(40, fog × 0.75)`, Fade: `min(fade, 55)`
 - Visuell: flackernder oranger Orb in Weltspace
 
+### NPC-System
+
+- `this._npcs = [{ cx, cy, row, col, targetCx, targetCy, animFrame, animT, lastDir, spriteIndex, speed }, ...]`
+- Spawn bei `_startNew()` via `_spawnNpcs()` — 3 NPCs ab `NPC_MIN_LEVEL = 1`, je verschiedene Startposition
+- **Bewegung:** Grid-basiert — läuft zum Mittelpunkt der nächsten Zelle, wählt dort eine zufällige freie Richtung (bevorzugt keine Umkehr via `lastDir`)
+- **Animation:** 6 Frames horizontal, alle 110 ms (`NPC_ANIM_MS`)
+- **Hintergrundentfernung:** `_removeBackground(img, bgTol)` — Pixel mit max. Kanaldifferenz < `bgTol` werden transparent gemacht
+- **Konfiguration** via `NPC_DEFS` (Konstante am Dateianfang):
+
+| # | Sprite | Speed | Glow | Alpha | bgTol | Mini-Map |
+|---|--------|-------|------|-------|-------|----------|
+| NPC1 | blauer Energie-Orb | 1.5 px/F | blau, 18 | 1.0 | 50 | `#4fc3f7` |
+| NPC2 | goldener Stern | 1.5 px/F | gold, 14 | 1.0 | 30 | `#ffd740` |
+| NPC3 | grüner Schleim-Geist | 1.0 px/F | grün, 12 | 0.9 | 30 | `#69f0ae` |
+
+- Keine Interaktion mit Spieler — Verfolgung und Kollision folgen später
+
 ### Mini-Map
 
 Wird immer in der **linken oberen Ecke** des Canvas gezeichnet (screen space).
@@ -244,6 +264,7 @@ Wird immer in der **linken oberen Ecke** des Canvas gezeichnet (screen space).
 - **Besuchte Zellen:** grau-blau gefüllt; bei Zellgröße ≥4 px werden Wandöffnungen als Konnektoren gezeichnet (1 px)
 - **Lösungspfad:** rote Linie (`#e53935`), `lineWidth = cs/5`, nur wenn `solutionAlpha > 0` und Linienbreite ≥ 0,5 px — spiegelt Spell 1 (Pfad) und Admin-Lösung
 - **Items:** langsam blinkende Punkte in Spell-Farbe (alle Items, unabhängig von Fog)
+- **NPC:** hellblauer Dot (`#4fc3f7`)
 - **Spieler:** leuchtender Dot in Roben-Farbe (`_robeColor`)
 
 ### Touch-Steuerung (Mobil)
