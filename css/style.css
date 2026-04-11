@@ -204,6 +204,33 @@ input[type="range"]:hover::-webkit-slider-thumb { background: #1e88e5; }
   font-variant-numeric: tabular-nums;
 }
 
+.spell-slot[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(10,10,30,0.92);
+  color: #c8caf0;
+  font-size: 11px;
+  white-space: nowrap;
+  padding: 3px 7px;
+  border-radius: 4px;
+  border: 1px solid #2e3060;
+  pointer-events: none;
+  z-index: 50;
+}
+
+.spell-slot .sp-key {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  font-size: 10px;
+  font-weight: bold;
+  color: #6870b8;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── Canvas wrapper ──────────────────────────────────── */
 
 #canvas-wrap {
@@ -340,7 +367,8 @@ button:active { filter: brightness(.9); }
   }
 
   .spell-slot .sp-countdown,
-  .spell-slot .sp-charges   { font-size: 9px; }
+  .spell-slot .sp-charges,
+  .spell-slot .sp-key       { font-size: 9px; }
 
   #overlay { z-index: 20; }
 }

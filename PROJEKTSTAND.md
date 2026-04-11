@@ -1,6 +1,6 @@
 # Maze Of Mages – Projektdokumentation
 
-**Stand:** 2026-04-11 (aktualisiert, Session 3)
+**Stand:** 2026-04-12 (aktualisiert, Session 4)
 **Pfad:** `/home/admin/Labyrinth/` — Git-Repo, Entwicklung und Live-Version (Apache zeigt direkt hierher)
 **Erreichbar unter:** `http://localhost:4000` — Apache-VirtualHost, startet automatisch mit dem System.
 **Online (GitHub Pages):** `https://JanDrescher.github.io/Labyrinth/` — wird automatisch aktualisiert bei jedem Push auf `main`.
@@ -27,7 +27,8 @@ Labyrinth/
 │   ├── spell-sprite.png   Spell-Icons Spritesheet (1376×768, 5×2 Grid, 10 Spells)
 │   ├── npc1.png           NPC1-Sprite (blauer Energie-Orb, 6 Frames, 2544×416 px)
 │   ├── npc2.png           NPC2-Sprite (goldener Stern, 6 Frames, 2544×416 px)
-│   └── npc3.png           NPC3-Sprite (grüner Schleim-Geist, 6 Frames, 2544×416 px)
+│   ├── npc3.png           NPC3-Sprite (grüner Schleim-Geist, 6 Frames, 2544×416 px)
+│   └── portal9.png        Portal-Sprite für Leuchtfeuer-Beacon (7 Frames, echte Transparenz)
 └── js/
     ├── maze.js        Labyrinth-Generator, Renderer, BFS-Löser, Dead-End-Erkennung
     ├── player.js      Spieler: Bewegung, Kollision, Darstellung, visitedCells, phasing
@@ -153,10 +154,10 @@ Frame-Wechsel alle 150 ms bei Bewegung, Frame 0 im Stand. Gezeichnet in Screengr
 |------|-------|-------------|-------|----------|---------|-----------|--------------|
 | 0    | 1     | Pfad        | 5 s   | 1        | 10      | `#4dd0e1` | Lösungspfad anzeigen, Fade ab 2 s |
 | 1    | 2     | Sackgasse   | 20 s  | 1        | 5       | `#66bb6a` | Sackgassen ausgrauen, Fade ab 3 s |
-| 2    | 3     | Sprung      | 5 s   | 2        | 8       | `#ff7043` | Kamera zoomt organisch raus (sin-Kurve); Spieler immun gegen NPCs |
+| 2    | 3     | Sprung      | 5 s   | 2        | 8       | `#ff7043` | Kamera zoomt organisch raus (sin-Kurve), überspringt Feinde; Spieler immun gegen NPCs |
 | 3    | 4     | Pforte      | 5 s   | 3        | 9       | `#a1887f` | Eine Wand in Blickrichtung öffnen; NPCs können die Pforte nicht nutzen |
 | 4    | 5     | Geist       | 6 s   | 4        | 9       | `#ba68c8` | Spieler kann interne Wände durchqueren (Außenwände blockieren weiterhin); Spieler immun gegen NPCs |
-| 5    | 6     | Leuchtfeuer | —     | 5        | 6       | `#ffab40` | Dauerhafter Leuchtpunkt |
+| 5    | 6     | Leuchtfeuer | —     | 5        | 6       | `#ffab40` | Platziert dauerhaftes Portal; beleuchtet Umgebung zu 50% |
 | 6    | 7     | Orakel      | 4 s   | 6        | 9       | `#fff176` | Fog komplett entfernen |
 | 7    | 8     | Pfadmitte   | —     | 7        | 10      | `#ffd54f` | Teleport zur Mitte des kürzesten Lösungspfades |
 | 8    | 9     | Waffe       | —     | 8        | 8       | `#e53935` | (Effekt folgt) |
@@ -234,10 +235,11 @@ Offscreen-Canvas-Ansatz mit `destination-out` für mehrere Lichtquellen:
 
 ### Beacon-System (Leuchtfeuer)
 
-- `this._beacons = [{ cx, cy }, ...]` — Weltkoordinaten
+- `this._beacons = [{ cx, cy, animFrame, animT }, ...]` — Weltkoordinaten + Animationszustand
 - Reset bei `_startNew()`
 - Lichtradius: `max(40, fog × 0.75)`, Fade: `min(fade, 55)`
-- Visuell: flackernder oranger Orb in Weltspace
+- **Fog-Ausleuchtung:** 50% (`fc.globalAlpha = 0.5` beim `destination-out`-Punch) — Nebel bleibt halb sichtbar
+- **Visuell:** animiertes Portal-Sprite (`img/portal9.png`, 7 Frames, 120 ms/Frame, Größe `cell × 0.85`)
 
 ### NPC-System
 
@@ -336,6 +338,8 @@ Erkennung: `navigator.maxTouchPoints > 0` → `this._hasTouch`.
 - **Desktop:** oberhalb des Canvas, 1 Reihe, 10 Slots à 52×52 px, GAP 5 px
 - **Mobil:** `position: absolute; bottom: 0` — Overlay am unteren Canvas-Rand, 2 Reihen à 5 Slots, kleinere Slots (44 px Höhe), halbtransparenter Hintergrund
 - Slot-Inhalt: Spell-Sprite-Icon (Originalproportionen, zentriert), Countdown oben-links, Ladungen unten-rechts
+- **Aktivierungstaste:** oben-rechts, Farbe `#6870b8` (helleres Blau im Slot-Rahmen-Farbton), 10px/9px (Mobil)
+- **Tooltip:** `data-tooltip`-Attribut mit Spell-Name, erscheint per CSS `::after` bei Hover
 - **Leer** (nicht gefunden): nur dunkles Slot-Rechteck, kein Icon
 - **Aktiv:** blauer Rahmen + Glow (CSS-Klasse `.active`)
 - **Erschöpft** (gefunden, 0 Ladungen): Icon blass (`.depleted`, opacity 0.38)

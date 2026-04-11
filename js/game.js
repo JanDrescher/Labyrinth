@@ -16,9 +16,9 @@ const FOG_COLOR = '13,13,26';
 const SPELL_DEFS = [
   { name: 'Pfad',        duration: 5,  initialCount: 0, itemColor: '#4dd0e1', itemDiv: 10, minLevel: 1, description: 'zeigt den Lösungspfad für 5 Sekunden an' },
   { name: 'Sackgasse',   duration: 20, initialCount: 0, itemColor: '#66bb6a', itemDiv:  5, minLevel: 1, description: 'zeigt für 20 Sekunden Sackgassen im Sichtbereich an' },
-  { name: 'Sprung',      duration: 5,  initialCount: 0, itemColor: '#ff7043', itemDiv:  8, minLevel: 2, description: 'zoomt die Kamera für 5 Sekunden heraus' },
-  { name: 'Pforte',      duration: 5,  initialCount: 0, itemColor: '#a1887f', itemDiv:  9, minLevel: 3, description: 'öffnet eine Wand in Blickrichtung für 5 Sekunden' },
-  { name: 'Geist',       duration: 6,  initialCount: 0, itemColor: '#ba68c8', itemDiv:  9, minLevel: 4, description: 'du kannst für 6 Sekunden durch Wände gehen' },
+  { name: 'Sprung',      duration: 5,  initialCount: 0, itemColor: '#ff7043', itemDiv:  8, minLevel: 2, description: 'zoomt die Kamera für 5 Sekunden heraus, überspringt Gegner' },
+  { name: 'Pforte',      duration: 5,  initialCount: 0, itemColor: '#a1887f', itemDiv:  9, minLevel: 3, description: 'öffnet eine Wand in Blickrichtung für 5 Sekunden, undurchlässig für Gegner' },
+  { name: 'Geist',       duration: 6,  initialCount: 0, itemColor: '#ba68c8', itemDiv:  9, minLevel: 4, description: 'du kannst für 6 Sekunden durch Wände und Gegner gehen' },
   { name: 'Leuchtfeuer', duration: 0,  initialCount: 0, itemColor: '#ffab40', itemDiv:  6, minLevel: 5, description: 'platziert einen dauerhaften Leuchtpunkt' },
   { name: 'Orakel',      duration: 4,  initialCount: 0, itemColor: '#fff176', itemDiv:  9, minLevel: 6, description: 'entfernt den Nebel für 4 Sekunden vollständig' },
   { name: 'Pfadmitte', duration: 0, initialCount: 0, itemColor: '#ffd54f', itemDiv: 10, minLevel: 7, description: 'teleportiert dich zur Mitte des kürzesten Lösungspfades' },
@@ -64,6 +64,8 @@ class Game {
     this._pickupCounts    = new Array(10).fill(0);  // per spell type, carries over between levels
     this._spriteSheet  = new Image();
     this._spriteSheet.src = 'img/spell-sprite.png';
+    this._portalSprite = new Image();
+    this._portalSprite.src = 'img/portal9.png';
     this._npcSprites = new Array(NPC_DEFS.length).fill(null);  // must exist before any onload fires
     NPC_DEFS.forEach((def, i) => {
       const img = new Image();
@@ -94,8 +96,11 @@ class Game {
       if (spell) {
         const col = i % 5;
         const row = Math.floor(i / 5);
+        const keyLabel = i === 9 ? '0' : String(i + 1);
+        slot.dataset.tooltip = spell.name;
         slot.innerHTML =
           `<span class="sp-countdown"></span>` +
+          `<span class="sp-key">${keyLabel}</span>` +
           `<div class="sp-icon" style="background-position:${col * 25}% ${row * 100}%;display:none"></div>` +
           `<span class="sp-charges"></span>`;
         slot.addEventListener('click', () => this._triggerSpell(i));
@@ -471,24 +476,27 @@ class Game {
     if (this._beacons.some(b => Math.abs(b.cx - cx) < 4 && Math.abs(b.cy - cy) < 4)) return;
     spell.count--;
     spell.activeUntil = performance.now() + 350;  // brief flash in spell bar
-    this._beacons.push({ cx, cy });
+    this._beacons.push({ cx, cy, animFrame: 0, animT: performance.now() });
   }
 
   _drawBeacons(ctx) {
     if (!this._beacons.length) return;
-    const r   = Math.max(4, this.maze.cell * 0.12);
-    const now = performance.now();
+    const img = this._portalSprite;
+    if (!img || !img.complete || !img.naturalWidth) return;
+    const FRAMES    = 7;
+    const FRAME_MS  = 120;
+    const fw        = Math.floor(img.naturalWidth / FRAMES);
+    const fh        = img.naturalHeight;
+    const size      = Math.max(16, this.maze.cell * 0.85);
+    const now       = performance.now();
+
     for (const b of this._beacons) {
-      const flicker = 0.65 + 0.35 * Math.sin(now / 210 + b.cx * 0.013 + b.cy * 0.017);
-      ctx.save();
-      ctx.globalAlpha = flicker;
-      ctx.fillStyle   = '#ffab40';
-      ctx.shadowColor = '#ff6d00';
-      ctx.shadowBlur  = 18;
-      ctx.beginPath();
-      ctx.arc(b.cx, b.cy, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+      if (now - b.animT > FRAME_MS) {
+        b.animFrame = (b.animFrame + 1) % FRAMES;
+        b.animT     = now;
+      }
+      ctx.drawImage(img, b.animFrame * fw, 0, fw, fh,
+                    b.cx - size / 2, b.cy - size / 2, size, size);
     }
   }
 
@@ -1413,9 +1421,11 @@ class Game {
       const vcy = vh / 2;
       const br  = Math.max(40, fog * 0.75);
       const bf  = Math.min(fade, 55);
+      fc.globalAlpha = 0.5;   // 50% illumination — fog partially remains
       for (const b of this._beacons) {
         punchLight(vcx + (b.cx - px) * zoom, vcy + (b.cy - py) * zoom, br * zoom, bf * zoom);
       }
+      fc.globalAlpha = 1;
     }
 
     ctx.save();
