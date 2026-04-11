@@ -182,11 +182,13 @@ export class Player {
     const newCx = this._cx + dx;
 
     if (dx > 0) {
-      const wallX = (col + 1) * cell;
-      if (!this.phasing && newCx + hw >= wallX && walls[row][col].E) { this._cx = wallX - hw; return; }
+      const wallX   = (col + 1) * cell;
+      const blocked = (!this.phasing && walls[row][col].E) || col >= cols - 1;
+      if (newCx + hw >= wallX && blocked) { this._cx = wallX - hw; return; }
     } else {
-      const wallX = col * cell;
-      if (!this.phasing && newCx - hw <= wallX && walls[row][col].W) { this._cx = wallX + hw; return; }
+      const wallX   = col * cell;
+      const blocked = (!this.phasing && walls[row][col].W) || col <= 0;
+      if (newCx - hw <= wallX && blocked) { this._cx = wallX + hw; return; }
     }
 
     this._cx = newCx;

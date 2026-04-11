@@ -145,7 +145,7 @@ input[type="range"]:hover::-webkit-slider-thumb { background: #1e88e5; }
   display: flex;
   gap: 5px;
   justify-content: center;
-  padding-bottom: 6px;
+  margin-bottom: 6px;
   border-radius: 4px;
 }
 
@@ -270,6 +270,7 @@ button:active { filter: brightness(.9); }
   background: #b71c1c;
   box-shadow: 0 0 8px rgba(229, 57, 53, .5);
 }
+
 
 /* ── NPC chase border ────────────────────────────────── */
 

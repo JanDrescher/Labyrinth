@@ -73,7 +73,8 @@ class Game {
     this._npcs = [];
     this._openedWall        = null;
     this._revealedDeadCells = new Set();
-    this._npcHitUntil       = [0, 0, 0];  // per NPC type, effect end timestamp
+    this._npcHitUntil  = 0;      // effect end timestamp
+    this._npcHitColor  = null;  // mapColor of the hitting NPC
     this._teleportFlash = 0;
     this._flickerUntil  = 0;
     this._beacons      = [];
@@ -146,6 +147,14 @@ class Game {
 
     document.getElementById('btn-new').addEventListener('click', () => this._startNew());
 
+    // Debug: give 10 charges to every spell and mark all as discovered
+    document.getElementById('btn-dbg-spells').addEventListener('click', () => {
+      this._spells.forEach((spell, i) => {
+        if (spell) { spell.count += 10; this._discoveredSpells.add(i); }
+      });
+      this._updateSpellBar();
+    });
+
     document.getElementById('btn-jump-level').addEventListener('click', () => {
       const target = parseInt(document.getElementById('inp-jump-level').value, 10);
       if (!isFinite(target) || target < 1) return;
@@ -200,9 +209,8 @@ class Game {
   // ── Admin UI toggle (qwert) ──────────────────────────────
 
   _toggleAdminUI() {
-    document.getElementById('settings').classList.toggle('hidden');
-    document.getElementById('btn-new').classList.toggle('hidden');
-    document.getElementById('btn-solution').classList.toggle('hidden');
+    const els = ['settings', 'btn-new', 'btn-solution', 'btn-dbg-spells'];
+    els.forEach(id => document.getElementById(id).classList.toggle('hidden'));
   }
 
   // ── Helpers ──────────────────────────────────────────────
@@ -647,9 +655,10 @@ class Game {
           if (playerImmune) {
             // Sprung / Geist: NPC breaks off silently, no penalty for player
           } else {
-            npc.cooldownUntil  = now + 10000;
+            npc.cooldownUntil = now + 10000;
             this._flickerUntil = now + 600;
-            this._npcHitUntil[npc.spriteIndex] = now + 10000;
+            this._npcHitUntil  = now + 10000;
+            this._npcHitColor  = NPC_DEFS[npc.spriteIndex].mapColor;
           }
         }
       }
@@ -912,24 +921,19 @@ class Game {
     const chased = this._npcs.some(n => n.mode === 'chase');
     this._spellBarEl.classList.toggle('chased', chased);
 
-    // NPC hit effect rings — 1 px each, spreads 3/2/1 px (outermost first so
-    // each smaller ring paints over the inner edge of the larger one)
-    const shadows = [];
-    for (let i = 2; i >= 0; i--) {
-      if (now < this._npcHitUntil[i]) {
-        const pulse  = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(now / 500));
-        const spread = i + 1;                         // 3, 2, 1
-        const col    = NPC_DEFS[i].mapColor;
-        const r = parseInt(col.slice(1, 3), 16);
-        const g = parseInt(col.slice(3, 5), 16);
-        const b = parseInt(col.slice(5, 7), 16);
-        shadows.push(
-          `0 0 0 ${spread}px rgba(${r},${g},${b},${pulse.toFixed(2)})`,
-          `0 0 ${spread * 4}px rgba(${r},${g},${b},${(pulse * 0.4).toFixed(2)})`
-        );
-      }
+    // NPC hit effect — single pulsing border in the hitting NPC's color
+    if (now < this._npcHitUntil && this._npcHitColor) {
+      const pulse = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(now / 500));
+      const col   = this._npcHitColor;
+      const r = parseInt(col.slice(1, 3), 16);
+      const g = parseInt(col.slice(3, 5), 16);
+      const b = parseInt(col.slice(5, 7), 16);
+      this._spellBarEl.style.boxShadow =
+        `0 0 0 2px rgba(${r},${g},${b},${pulse.toFixed(2)}), ` +
+        `0 0 8px rgba(${r},${g},${b},${(pulse * 0.4).toFixed(2)})`;
+    } else {
+      this._spellBarEl.style.boxShadow = '';
     }
-    this._spellBarEl.style.boxShadow = shadows.join(', ');
     for (let i = 0; i < 10; i++) {
       const slot  = this._spellSlotEls[i];
       const spell = this._spells[i];
@@ -993,7 +997,8 @@ class Game {
     this._pendingRespawns   = [];
     this._flickerUntil      = 0;
     this._revealedDeadCells = new Set();
-    this._npcHitUntil       = [0, 0, 0];
+    this._npcHitUntil  = 0;
+    this._npcHitColor  = null;
 
     this._fitCanvas();
 
