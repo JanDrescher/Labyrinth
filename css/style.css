@@ -146,6 +146,7 @@ input[type="range"]:hover::-webkit-slider-thumb { background: #1e88e5; }
   gap: 5px;
   justify-content: center;
   padding-bottom: 6px;
+  border-radius: 4px;
 }
 
 .spell-slot {
@@ -268,6 +269,19 @@ button:active { filter: brightness(.9); }
 #btn-solution[aria-pressed="true"] {
   background: #b71c1c;
   box-shadow: 0 0 8px rgba(229, 57, 53, .5);
+}
+
+/* ── NPC chase border ────────────────────────────────── */
+
+@keyframes chase-pulse {
+  0%,100% { border-color: rgba(255,23,68,0.55); box-shadow: 0 0  6px rgba(255,23,68,0.30); }
+  50%     { border-color: rgba(255,23,68,1.00); box-shadow: 0 0 18px rgba(255,23,68,0.80); }
+}
+
+#spell-bar.chased {
+  border: 1px solid rgba(255,23,68,0.55);
+  border-radius: 4px;
+  animation: chase-pulse 1.4s ease-in-out infinite;
 }
 
 /* ── Score flash animation ───────────────────────────── */

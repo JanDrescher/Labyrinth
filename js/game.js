@@ -14,7 +14,7 @@ const FOG_COLOR = '13,13,26';
 // initialCount: charges the player starts the whole game with (not reset between levels)
 // itemDiv: items per maze = floor(sqrt(area) / itemDiv); omit → no items
 const SPELL_DEFS = [
-  { name: 'Pfad',        duration: 5,  initialCount: 0, itemColor: '#4dd0e1', itemDiv: 12, minLevel: 1, description: 'zeigt den Lösungspfad für 5 Sekunden an' },
+  { name: 'Pfad',        duration: 5,  initialCount: 0, itemColor: '#4dd0e1', itemDiv: 10, minLevel: 1, description: 'zeigt den Lösungspfad für 5 Sekunden an' },
   { name: 'Sackgasse',   duration: 20, initialCount: 0, itemColor: '#66bb6a', itemDiv:  5, minLevel: 1, description: 'zeigt für 20 Sekunden Sackgassen im Sichtbereich an' },
   { name: 'Sprung',      duration: 5,  initialCount: 0, itemColor: '#ff7043', itemDiv:  8, minLevel: 2, description: 'zoomt die Kamera für 5 Sekunden heraus' },
   { name: 'Pforte',      duration: 5,  initialCount: 0, itemColor: '#a1887f', itemDiv:  9, minLevel: 3, description: 'öffnet eine Wand in Blickrichtung für 5 Sekunden' },
@@ -71,8 +71,11 @@ class Game {
       img.src = def.src;
     });
     this._npcs = [];
-    this._openedWall   = null;
+    this._openedWall        = null;
+    this._revealedDeadCells = new Set();
+    this._npcHitUntil       = [0, 0, 0];  // per NPC type, effect end timestamp
     this._teleportFlash = 0;
+    this._flickerUntil  = 0;
     this._beacons      = [];
     this._fogCanvas    = null;
     this._hasTouch     = navigator.maxTouchPoints > 0;
@@ -523,13 +526,85 @@ class Game {
       const cy = (row + 0.5) * cell;
       this._npcs.push({ cx, cy, row, col, targetCx: cx, targetCy: cy,
                         animFrame: 0, animT: performance.now(), lastDir: null,
-                        spriteIndex, speed: NPC_DEFS[spriteIndex].speed });
+                        spriteIndex, speed: NPC_DEFS[spriteIndex].speed,
+                        mode: 'wander', chaseLostAt: null, cooldownUntil: 0 });
+    }
+  }
+
+  // Returns true when npc has clear line-of-sight to the player in its current
+  // movement direction AND the player is within the fog radius.
+  // Returns true if the direction d from (row,col) is blocked for NPCs.
+  // Treats the player's opened Pforte-wall as impassable for NPCs.
+  _isNpcWall(row, col, d) {
+    if (this.maze.walls[row][col][d]) return true;
+    const ow = this._openedWall;
+    if (!ow) return false;
+    if (row === ow.row && col === ow.col && d === ow.dir) return true;
+    if (row === ow.nr  && col === ow.nc  && d === ow.opp) return true;
+    return false;
+  }
+
+  _npcHasLos(npc, fogRadius) {
+    if (!npc.lastDir) return false;
+    const { cell, cols, rows } = this.maze;
+    if (Math.hypot(npc.cx - this.player._cx, npc.cy - this.player._cy) > fogRadius) return false;
+    const pr = Math.floor(this.player._cy / cell);
+    const pc = Math.floor(this.player._cx / cell);
+    const [dr, dc] = NPC_DIR_DELTA[npc.lastDir];
+    let r = npc.row, c = npc.col;
+    while (true) {
+      if (this._isNpcWall(r, c, npc.lastDir)) break;
+      r += dr; c += dc;
+      if (r < 0 || r >= rows || c < 0 || c >= cols) break;
+      if (r === pr && c === pc) return true;
+    }
+    return false;
+  }
+
+  // BFS from npc's cell to player's cell; returns the first direction to take.
+  // Treats the player's Pforte as blocked (NPCs cannot use it).
+  _npcBfsNext(npc) {
+    const { cols, rows, cell } = this.maze;
+    const pr = Math.floor(this.player._cy / cell);
+    const pc = Math.floor(this.player._cx / cell);
+    const sr = npc.row, sc = npc.col;
+    if (sr === pr && sc === pc) return null;
+    const key   = (r, c) => r * cols + c;
+    const prev  = new Map();
+    const queue = [[sr, sc]];
+    prev.set(key(sr, sc), null);
+    let found = false;
+    outer: while (queue.length) {
+      const [r, c] = queue.shift();
+      for (const [dir, [dr, dc]] of Object.entries(NPC_DIR_DELTA)) {
+        if (this._isNpcWall(r, c, dir)) continue;
+        const nr = r + dr, nc = c + dc;
+        if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+        const k = key(nr, nc);
+        if (prev.has(k)) continue;
+        prev.set(k, { r, c, dir });
+        if (nr === pr && nc === pc) { found = true; break outer; }
+        queue.push([nr, nc]);
+      }
+    }
+    if (!found) return null;
+    // Trace back to NPC start to find first step
+    let cur = [pr, pc];
+    while (true) {
+      const p = prev.get(key(cur[0], cur[1]));
+      if (!p) return null;
+      if (p.r === sr && p.c === sc) return p.dir;
+      cur = [p.r, p.c];
     }
   }
 
   _updateNpcs() {
-    const { cell, walls, cols, rows } = this.maze;
+    const { cell, cols, rows } = this.maze;
     const now = performance.now();
+    const { fog } = this._settings();
+    const REVERSE = { N: 'S', S: 'N', E: 'W', W: 'E' };
+    const playerImmune = (this._spells[2]?.activeUntil > now)   // Sprung
+                      || (this._spells[4]?.activeUntil > now);  // Geist
 
     for (const npc of this._npcs) {
       // Animate
@@ -538,7 +613,48 @@ class Game {
         npc.animT = now;
       }
 
-      // Move toward target cell center
+      // ── Sight / mode transitions ──────────────────────────
+      const inCooldown = now < npc.cooldownUntil;
+      if (!inCooldown) {
+        const hasLos = this._npcHasLos(npc, fog);
+        if (npc.mode === 'wander') {
+          if (hasLos) {
+            npc.mode        = 'chase';
+            npc.chaseLostAt = null;
+            npc.speed       = NPC_DEFS[npc.spriteIndex].speed * 2;
+          }
+        } else { // chase
+          if (hasLos) {
+            npc.chaseLostAt = null;
+          } else {
+            if (npc.chaseLostAt === null) npc.chaseLostAt = now;
+            if (now - npc.chaseLostAt > 10000) {
+              npc.mode        = 'wander';
+              npc.chaseLostAt = null;
+              npc.speed       = NPC_DEFS[npc.spriteIndex].speed;
+            }
+          }
+        }
+      }
+
+      // ── Collision (only while chasing) ───────────────────
+      if (npc.mode === 'chase') {
+        const contactDist = Math.hypot(npc.cx - this.player._cx, npc.cy - this.player._cy);
+        if (contactDist < cell * 0.5) {
+          npc.mode        = 'wander';
+          npc.chaseLostAt = null;
+          npc.speed       = NPC_DEFS[npc.spriteIndex].speed;
+          if (playerImmune) {
+            // Sprung / Geist: NPC breaks off silently, no penalty for player
+          } else {
+            npc.cooldownUntil  = now + 10000;
+            this._flickerUntil = now + 600;
+            this._npcHitUntil[npc.spriteIndex] = now + 10000;
+          }
+        }
+      }
+
+      // ── Move toward target cell center ────────────────────
       const dx   = npc.targetCx - npc.cx;
       const dy   = npc.targetCy - npc.cy;
       const dist = Math.hypot(dx, dy);
@@ -550,22 +666,27 @@ class Game {
         npc.row = Math.round((npc.cy / cell) - 0.5);
         npc.col = Math.round((npc.cx / cell) - 0.5);
 
-        // Available exits, preferring not to reverse unless forced
-        const REVERSE = { N: 'S', S: 'N', E: 'W', W: 'E' };
-        const dirs = Object.keys(NPC_DIR_DELTA).filter(d => {
-          if (walls[npc.row][npc.col][d]) return false;
-          const [dr, dc] = NPC_DIR_DELTA[d];
-          const nr = npc.row + dr, nc = npc.col + dc;
-          return nr >= 0 && nr < rows && nc >= 0 && nc < cols;
-        });
-        const forward = dirs.filter(d => d !== REVERSE[npc.lastDir]);
-        const pool    = forward.length ? forward : dirs;
-        if (pool.length) {
-          const dir = pool[Math.floor(Math.random() * pool.length)];
+        let dir = null;
+        if (npc.mode === 'chase') dir = this._npcBfsNext(npc);
+
+        if (!dir) {
+          // Wander: random direction, preferring not to reverse
+          const dirs = Object.keys(NPC_DIR_DELTA).filter(d => {
+            if (this._isNpcWall(npc.row, npc.col, d)) return false;
+            const [dr, dc] = NPC_DIR_DELTA[d];
+            const nr = npc.row + dr, nc = npc.col + dc;
+            return nr >= 0 && nr < rows && nc >= 0 && nc < cols;
+          });
+          const forward = dirs.filter(d => d !== REVERSE[npc.lastDir]);
+          const pool    = forward.length ? forward : dirs;
+          if (pool.length) dir = pool[Math.floor(Math.random() * pool.length)];
+        }
+
+        if (dir) {
           const [dr, dc] = NPC_DIR_DELTA[dir];
-          npc.targetCx  = ((npc.col + dc) + 0.5) * cell;
-          npc.targetCy  = ((npc.row + dr) + 0.5) * cell;
-          npc.lastDir   = dir;
+          npc.targetCx = ((npc.col + dc) + 0.5) * cell;
+          npc.targetCy = ((npc.row + dr) + 0.5) * cell;
+          npc.lastDir  = dir;
         }
       } else {
         npc.cx += (dx / dist) * npc.speed;
@@ -586,8 +707,8 @@ class Game {
       const fh  = img.height;
       ctx.save();
       ctx.globalAlpha = def.alpha;
-      ctx.shadowColor = def.glowColor;
-      ctx.shadowBlur  = def.glowBlur;
+      ctx.shadowColor = npc.mode === 'chase' ? '#ff1744' : def.glowColor;
+      ctx.shadowBlur  = npc.mode === 'chase' ? 28 : def.glowBlur;
       ctx.drawImage(img, npc.animFrame * fw, 0, fw, fh,
                     npc.cx - size / 2, npc.cy - size / 2, size, size);
       ctx.restore();
@@ -788,6 +909,27 @@ class Game {
 
   _updateSpellBar() {
     const now = performance.now();
+    const chased = this._npcs.some(n => n.mode === 'chase');
+    this._spellBarEl.classList.toggle('chased', chased);
+
+    // NPC hit effect rings — 1 px each, spreads 3/2/1 px (outermost first so
+    // each smaller ring paints over the inner edge of the larger one)
+    const shadows = [];
+    for (let i = 2; i >= 0; i--) {
+      if (now < this._npcHitUntil[i]) {
+        const pulse  = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(now / 500));
+        const spread = i + 1;                         // 3, 2, 1
+        const col    = NPC_DEFS[i].mapColor;
+        const r = parseInt(col.slice(1, 3), 16);
+        const g = parseInt(col.slice(3, 5), 16);
+        const b = parseInt(col.slice(5, 7), 16);
+        shadows.push(
+          `0 0 0 ${spread}px rgba(${r},${g},${b},${pulse.toFixed(2)})`,
+          `0 0 ${spread * 4}px rgba(${r},${g},${b},${(pulse * 0.4).toFixed(2)})`
+        );
+      }
+    }
+    this._spellBarEl.style.boxShadow = shadows.join(', ');
     for (let i = 0; i < 10; i++) {
       const slot  = this._spellSlotEls[i];
       const spell = this._spells[i];
@@ -845,10 +987,13 @@ class Game {
     for (const spell of this._spells) {
       if (spell) spell.activeUntil = 0;
     }
-    this._openedWall      = null;
-    this._beacons         = [];
-    this._fogCanvas       = null;
-    this._pendingRespawns = [];
+    this._openedWall        = null;
+    this._beacons           = [];
+    this._fogCanvas         = null;
+    this._pendingRespawns   = [];
+    this._flickerUntil      = 0;
+    this._revealedDeadCells = new Set();
+    this._npcHitUntil       = [0, 0, 0];
 
     this._fitCanvas();
 
@@ -922,6 +1067,7 @@ class Game {
 
   _draw() {
     const ctx = this.ctx;
+    const now = performance.now();
     const vw  = this.canvas.width;
     const vh  = this.canvas.height;
     const vcx = vw / 2;
@@ -974,8 +1120,10 @@ class Game {
     // Player drawn in screen space so it stays full-size during Sprung zoom-out
     ctx.save();
     ctx.translate(vcx - px, psy - py);
-    if (this.player.phasing) {
-      const pulse = 0.42 + 0.22 * Math.sin(performance.now() / 170);
+    if (this._flickerUntil > now) {
+      ctx.globalAlpha = Math.floor(now / 70) % 2 === 0 ? 0.15 : 1.0;
+    } else if (this.player.phasing) {
+      const pulse = 0.42 + 0.22 * Math.sin(now / 170);
       ctx.globalAlpha = pulse;
       ctx.shadowColor = '#90caf9';
       ctx.shadowBlur  = 24;
@@ -997,6 +1145,11 @@ class Game {
         ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
         ctx.restore();
       }
+    }
+
+    // While Sackgasse spell is active, permanently record dead ends for minimap
+    if (deadAlpha > 0) {
+      for (const key of this.player.knownDeadCells) this._revealedDeadCells.add(key);
     }
 
     this._drawMiniMap(ctx, solutionAlpha);
@@ -1027,7 +1180,21 @@ class Game {
     ctx.lineWidth   = 1;
     ctx.strokeRect(ox - 2, oy - 2, mapW + 4, mapH + 4);
 
-    // Visited corridors
+    // Revealed dead ends (Sackgasse spell) — darker gray, shown as "done"
+    ctx.fillStyle = '#3e3e52';
+    for (const key of this._revealedDeadCells) {
+      const r = Math.floor(key / cols);
+      const c = key % cols;
+      ctx.fillRect(ox + c * cs, oy + r * cs, cs - gap, cs - gap);
+      if (gap) {
+        if (c + 1 < cols && !walls[r][c].E && this._revealedDeadCells.has(r * cols + c + 1))
+          ctx.fillRect(ox + (c + 1) * cs - gap, oy + r * cs, gap, cs - gap);
+        if (r + 1 < rows && !walls[r][c].S && this._revealedDeadCells.has((r + 1) * cols + c))
+          ctx.fillRect(ox + c * cs, oy + (r + 1) * cs - gap, cs - gap, gap);
+      }
+    }
+
+    // Visited corridors — normal gray, drawn on top so player-walked cells always win
     ctx.fillStyle = '#6a6a8a';
     const visited = this.player.visitedCells;
     for (const key of visited) {
