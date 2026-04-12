@@ -1132,6 +1132,8 @@ class Game {
     this._revealedDeadCells = new Set();
     this._npcHitUntil  = 0;
     this._npcHitColor  = null;
+    this._mmViewCol    = null;   // Minimap-Viewport, lazy initialisiert beim ersten Draw
+    this._mmViewRow    = null;
 
     this._fitCanvas();
 
@@ -1299,88 +1301,127 @@ class Game {
 
   _drawMiniMap(ctx, solutionAlpha = 0) {
     const { cols, rows, cell: mazeCell, walls } = this.maze;
-    const vw = this.canvas.width;
-    const vh = this.canvas.height;
 
-    const maxSize = Math.min(vw * 0.22, vh * 0.22, 160);
-    const cs   = Math.max(2, Math.floor(maxSize / Math.max(cols, rows)));
-    const gap  = cs >= 4 ? 1 : 0;
-    const mapW = cols * cs;
-    const mapH = rows * cs;
-    const ox   = 10;
-    const oy   = 10;
+    const CS     = 8;              // minimap px pro Maze-Zelle — fix, unabhängig von Maze-Größe
+    const HALF   = 12;             // Zellen vom Spieler bis zum Rand → 25×25 Sichtfenster
+    const N      = HALF * 2 + 1;  // 25
+    const GAP    = 1;              // 1-px Wandlücke zwischen Zellen
+    const MARGIN = 2;              // Zellen Puffer zum Rand bevor Viewport nachrutscht
+
+    // Spieler-Gitterposition (ganzzahlig)
+    const pCol = Math.floor(this.player._cx / mazeCell);
+    const pRow = Math.floor(this.player._cy / mazeCell);
+
+    // Lazy-Init: Spieler unten-mitte, wie die Hauptansicht
+    if (this._mmViewCol === null) {
+      this._mmViewCol = pCol - HALF;
+      this._mmViewRow = pRow - (N - 1);
+    }
+
+    // Viewport nachrutschen, sobald Spieler den Randbereich erreicht
+    if (pCol < this._mmViewCol + MARGIN)           this._mmViewCol = pCol - MARGIN;
+    if (pCol > this._mmViewCol + N - 1 - MARGIN)   this._mmViewCol = pCol - (N - 1 - MARGIN);
+    if (pRow < this._mmViewRow + MARGIN)           this._mmViewRow = pRow - MARGIN;
+    if (pRow > this._mmViewRow + N - 1 - MARGIN)   this._mmViewRow = pRow - (N - 1 - MARGIN);
+
+    // Viewport auf Maze-Grenzen clippen — kein dunkler Rand außerhalb des Labyrinths
+    const vc0 = Math.max(0, this._mmViewCol);
+    const vr0 = Math.max(0, this._mmViewRow);
+    const vc1 = Math.min(cols, this._mmViewCol + N);
+    const vr1 = Math.min(rows, this._mmViewRow + N);
+
+    // Minimap-Ursprung und tatsächliche Pixelgröße (variabel je nach Clipping)
+    const ox    = 10;
+    const oy    = 10;
+    const mapW  = (vc1 - vc0) * CS;
+    const mapH  = (vr1 - vr0) * CS;
+
+    // Welt-Pixel → Minimap-Pixel (für kontinuierliche Positionen: NPCs, Portale, Spieler)
+    const wToMx = wx => ox + (wx / mazeCell - vc0) * CS;
+    const wToMy = wy => oy + (wy / mazeCell - vr0) * CS;
+
+    // Gitterzelle → Minimap-Pixel (obere linke Ecke der Zelle)
+    const cToMx = c => ox + (c - vc0) * CS;
+    const cToMy = r => oy + (r - vr0) * CS;
+
+    // Prüft, ob eine Gitterzelle im geclippten Viewport liegt
+    const cellInView = (r, c) => c >= vc0 && c < vc1 && r >= vr0 && r < vr1;
+
+    // Prüft, ob ein Minimap-Pixel innerhalb der Kartenfläche liegt
+    const pixInView = (mx, my) =>
+      mx >= ox && mx < ox + mapW && my >= oy && my < oy + mapH;
 
     ctx.save();
 
-    // Background + border
+    // Hintergrund + Rahmen — exakt um den sichtbaren Maze-Bereich
     ctx.fillStyle   = 'rgba(5,5,15,0.75)';
-    ctx.fillRect(ox - 2, oy - 2, mapW + 4, mapH + 4);
+    ctx.fillRect(ox, oy, mapW, mapH);
     ctx.strokeStyle = 'rgba(80,80,120,0.6)';
     ctx.lineWidth   = 1;
-    ctx.strokeRect(ox - 2, oy - 2, mapW + 4, mapH + 4);
+    ctx.strokeRect(ox, oy, mapW, mapH);
 
-    // Revealed dead ends (Sackgasse spell) — darker gray, shown as "done"
+    // Sackgassen (Sackgasse-Spell) — dunkles Grau
     ctx.fillStyle = '#3e3e52';
     for (const key of this._revealedDeadCells) {
       const r = Math.floor(key / cols);
       const c = key % cols;
-      ctx.fillRect(ox + c * cs, oy + r * cs, cs - gap, cs - gap);
-      if (gap) {
-        if (c + 1 < cols && !walls[r][c].E && this._revealedDeadCells.has(r * cols + c + 1))
-          ctx.fillRect(ox + (c + 1) * cs - gap, oy + r * cs, gap, cs - gap);
-        if (r + 1 < rows && !walls[r][c].S && this._revealedDeadCells.has((r + 1) * cols + c))
-          ctx.fillRect(ox + c * cs, oy + (r + 1) * cs - gap, cs - gap, gap);
-      }
+      if (!cellInView(r, c)) continue;
+      const mx = cToMx(c), my = cToMy(r);
+      ctx.fillRect(mx, my, CS - GAP, CS - GAP);
+      if (c + 1 < cols && !walls[r][c].E && this._revealedDeadCells.has(r * cols + c + 1) && cellInView(r, c + 1))
+        ctx.fillRect(mx + CS - GAP, my, GAP, CS - GAP);
+      if (r + 1 < rows && !walls[r][c].S && this._revealedDeadCells.has((r + 1) * cols + c) && cellInView(r + 1, c))
+        ctx.fillRect(mx, my + CS - GAP, CS - GAP, GAP);
     }
 
-    // Visited corridors — normal gray, drawn on top so player-walked cells always win
+    // Besuchte Gänge — helles Grau (übermalt Sackgassen)
     ctx.fillStyle = '#6a6a8a';
     const visited = this.player.visitedCells;
     for (const key of visited) {
       const r = Math.floor(key / cols);
       const c = key % cols;
-      ctx.fillRect(ox + c * cs, oy + r * cs, cs - gap, cs - gap);
-      if (gap) {
-        if (c + 1 < cols && !walls[r][c].E && visited.has(r * cols + c + 1))
-          ctx.fillRect(ox + (c + 1) * cs - gap, oy + r * cs, gap, cs - gap);
-        if (r + 1 < rows && !walls[r][c].S && visited.has((r + 1) * cols + c))
-          ctx.fillRect(ox + c * cs, oy + (r + 1) * cs - gap, cs - gap, gap);
-      }
+      if (!cellInView(r, c)) continue;
+      const mx = cToMx(c), my = cToMy(r);
+      ctx.fillRect(mx, my, CS - GAP, CS - GAP);
+      if (c + 1 < cols && !walls[r][c].E && visited.has(r * cols + c + 1) && cellInView(r, c + 1))
+        ctx.fillRect(mx + CS - GAP, my, GAP, CS - GAP);
+      if (r + 1 < rows && !walls[r][c].S && visited.has((r + 1) * cols + c) && cellInView(r + 1, c))
+        ctx.fillRect(mx, my + CS - GAP, CS - GAP, GAP);
     }
 
-    // Solution path overlay
+    // Lösungspfad — nur sichtbare Segmente zeichnen
     if (solutionAlpha > 0) {
       const path = this.maze.solution();
-      const lineW = cs / 5;
-      if (lineW >= 0.5) {
-        ctx.save();
-        ctx.strokeStyle = '#e53935';
-        ctx.lineWidth   = lineW;
-        ctx.lineJoin    = 'round';
-        ctx.lineCap     = 'round';
-        ctx.globalAlpha = solutionAlpha;
-        ctx.beginPath();
-        for (let i = 0; i < path.length; i++) {
-          const [r, c] = path[i];
-          const x = ox + (c + 0.5) * cs;
-          const y = oy + (r + 0.5) * cs;
-          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-        ctx.restore();
+      ctx.save();
+      ctx.strokeStyle = '#e53935';
+      ctx.lineWidth   = Math.max(1, CS / 5);
+      ctx.lineJoin    = 'round';
+      ctx.lineCap     = 'round';
+      ctx.globalAlpha = solutionAlpha;
+      ctx.beginPath();
+      let penDown = false;
+      for (const [r, c] of path) {
+        if (!cellInView(r, c)) { penDown = false; continue; }
+        const x = cToMx(c) + CS / 2;
+        const y = cToMy(r) + CS / 2;
+        if (!penDown) { ctx.moveTo(x, y); penDown = true; }
+        else ctx.lineTo(x, y);
       }
+      ctx.stroke();
+      ctx.restore();
     }
 
-    // Items — langsam blinkende farbige Punkte
+    // Items — blinkende Punkte in Spell-Farbe
     const now = performance.now();
     for (const item of this._items) {
+      if (!cellInView(item.row, item.col)) continue;
       const color = SPELL_DEFS[item.spellIndex]?.itemColor ?? '#ffffff';
       const blink = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(now / 900 + item.col + item.row));
       ctx.globalAlpha = blink;
       ctx.fillStyle   = color;
       ctx.beginPath();
-      ctx.arc(ox + (item.col + 0.5) * cs, oy + (item.row + 0.5) * cs,
-              Math.max(1, cs * 0.5), 0, Math.PI * 2);
+      ctx.arc(cToMx(item.col) + CS / 2, cToMy(item.row) + CS / 2,
+              Math.max(1, CS * 0.5), 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.globalAlpha = 1;
@@ -1389,16 +1430,15 @@ class Game {
     for (const pair of this._portalPairs) {
       for (const portal of [pair.a, pair.b]) {
         if (!portal) continue;
-        ctx.globalAlpha = pair.b === null
-          ? 0.5 + 0.5 * Math.sin(now / 280)
-          : 1;
+        const mx = wToMx(portal.cx);
+        const my = wToMy(portal.cy);
+        if (!pixInView(mx, my)) continue;
+        ctx.globalAlpha = pair.b === null ? 0.5 + 0.5 * Math.sin(now / 280) : 1;
         ctx.fillStyle   = '#ffab40';
         ctx.shadowColor = '#ffab40';
         ctx.shadowBlur  = 5;
         ctx.beginPath();
-        ctx.arc(ox + (portal.cx / mazeCell) * cs,
-                oy + (portal.cy / mazeCell) * cs,
-                Math.max(1.5, cs * 0.65), 0, Math.PI * 2);
+        ctx.arc(mx, my, Math.max(1.5, CS * 0.65), 0, Math.PI * 2);
         ctx.fill();
       }
     }
@@ -1407,25 +1447,25 @@ class Game {
 
     // NPC-Dots
     for (const npc of this._npcs) {
+      const mx = wToMx(npc.cx);
+      const my = wToMy(npc.cy);
+      if (!pixInView(mx, my)) continue;
       const npcColor  = NPC_DEFS[npc.spriteIndex].mapColor;
       ctx.fillStyle   = npcColor;
       ctx.shadowColor = npcColor;
       ctx.shadowBlur  = 5;
       ctx.beginPath();
-      ctx.arc(ox + (npc.cx / mazeCell) * cs,
-              oy + (npc.cy / mazeCell) * cs,
-              Math.max(1.5, cs * 0.65), 0, Math.PI * 2);
+      ctx.arc(mx, my, Math.max(1.5, CS * 0.65), 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // Spieler-Dot in Roben-Farbe
+    // Spieler-Dot — folgt der echten Position, wandert frei im Viewport
     ctx.fillStyle   = this._robeColor ?? '#ffffff';
     ctx.shadowColor = this._robeColor ?? '#ffffff';
     ctx.shadowBlur  = 5;
     ctx.beginPath();
-    ctx.arc(ox + (this.player._cx / mazeCell) * cs,
-            oy + (this.player._cy / mazeCell) * cs,
-            Math.max(1.5, cs * 0.65), 0, Math.PI * 2);
+    ctx.arc(wToMx(this.player._cx), wToMy(this.player._cy),
+            Math.max(1.5, CS * 0.65), 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();

@@ -293,14 +293,19 @@ NPCs können die vom Spieler geöffnete Pforte nicht nutzen. `_isNpcWall(row, co
 
 Wird immer in der **linken oberen Ecke** des Canvas gezeichnet (screen space).
 
-- Größe: `min(vw*0.22, vh*0.22, 160px)`, Zellgröße mind. 2 px/Zelle
-- **Sackgassen (Sackgasse-Spell):** `_revealedDeadCells` — dunkles Grau-Blau `#3e3e52`; Zellen werden dauerhaft gespeichert sobald `deadAlpha > 0`, bleiben nach Ablauf des Spells sichtbar
-- **Besuchte Zellen:** grau-blau `#6a6a8a`; übermalt `_revealedDeadCells` wenn Spieler eine Sackgasse selbst besucht
-- Beide Sets: bei Zellgröße ≥4 px werden Wandöffnungen als 1-px-Konnektoren gezeichnet
-- **Lösungspfad:** rote Linie (`#e53935`), `lineWidth = cs/5`, nur wenn `solutionAlpha > 0`
-- **Items:** langsam blinkende Punkte in Spell-Farbe
-- **NPCs:** farbige Dots in `mapColor`
-- **Spieler:** leuchtender Dot in Roben-Farbe (`_robeColor`)
+**Lokales Sichtfenster** — zeigt nie das gesamte Labyrinth, sondern immer einen festen Bereich um den Spieler:
+- `CS = 8 px` pro Zelle — fix, unabhängig von der Maze-Größe → gleichbleibende Lesbarkeit auf allen Leveln (Zellen 7×7 px sichtbar, 1 px Wandlücke)
+- `HALF = 12` → 25×25 Zellen Sichtfenster, max. 200×200 px; Startlevel (21×21) 168×168 px
+- **Lazy Camera:** Viewport bleibt stehen solange der Spieler im Innenbereich ist; rutscht nach wenn der Spieler bis auf 2 Zellen (`MARGIN`) an den Rand kommt (`_mmViewCol`, `_mmViewRow`); reset bei `_startNew()`
+- **Startposition:** Spieler unten-mitte, wie Hauptansicht (`_mmViewRow = pRow − (N−1)`)
+- **Clipping:** Viewport wird auf Maze-Grenzen geclippt → kein dunkler Rand außerhalb des Labyrinths; Hintergrundrechteck passt sich der tatsächlichen Größe an
+- **Sackgassen (Sackgasse-Spell):** `_revealedDeadCells` — dunkles Grau-Blau `#3e3e52`; dauerhaft gespeichert, bleiben nach Ablauf sichtbar
+- **Besuchte Zellen:** grau-blau `#6a6a8a`; übermalt Sackgassen wenn Spieler die Zelle selbst besucht
+- 1-px-Konnektoren zwischen benachbarten offenen Zellen (Wandöffnungen)
+- **Lösungspfad:** rote Linie (`#e53935`), nur Segmente die im aktuellen Fenster liegen, nur wenn `solutionAlpha > 0`
+- **Items:** langsam blinkende Punkte in Spell-Farbe (nur wenn im Fenster)
+- **NPCs / Portale:** farbige Dots, nur wenn im Fenster
+- **Spieler:** leuchtender Dot in Roben-Farbe (`_robeColor`), wandert frei im Viewport
 
 ### Touch-Steuerung (Mobil)
 
