@@ -19,7 +19,7 @@ const SPELL_DEFS = [
   { name: 'Sprung',      duration: 5,  initialCount: 0, itemColor: '#ff7043', itemDiv:  8, minLevel: 2, description: 'zoomt die Kamera für 5 Sekunden heraus, überspringt Gegner' },
   { name: 'Pforte',      duration: 5,  initialCount: 0, itemColor: '#a1887f', itemDiv:  9, minLevel: 3, description: 'öffnet eine Wand in Blickrichtung für 5 Sekunden, undurchlässig für Gegner' },
   { name: 'Geist',       duration: 6,  initialCount: 0, itemColor: '#ba68c8', itemDiv:  9, minLevel: 4, description: 'du kannst für 6 Sekunden durch Wände und Gegner gehen' },
-  { name: 'Leuchtfeuer', duration: 0,  initialCount: 0, itemColor: '#ffab40', itemDiv:  6, minLevel: 5, description: 'platziert einen dauerhaften Leuchtpunkt' },
+  { name: 'Teleport',    duration: 0,  initialCount: 0, itemColor: '#ffab40', itemDiv:  6, minLevel: 5, description: 'Ein zufälliger Teleport, den Gegner nicht nutzen können. Zweiter Teleport führt zurück' },
   { name: 'Orakel',      duration: 4,  initialCount: 0, itemColor: '#fff176', itemDiv:  9, minLevel: 6, description: 'entfernt den Nebel für 4 Sekunden vollständig' },
   { name: 'Pfadmitte', duration: 0, initialCount: 0, itemColor: '#ffd54f', itemDiv: 10, minLevel: 7, description: 'teleportiert dich zur Mitte des kürzesten Lösungspfades' },
   { name: 'Waffe',    duration: 0, initialCount: 0, itemColor: '#e53935', itemDiv:  8, minLevel: 8, description: 'kommt bald…' },
@@ -65,7 +65,7 @@ class Game {
     this._spriteSheet  = new Image();
     this._spriteSheet.src = 'img/spell-sprite.png';
     this._portalSprite = new Image();
-    this._portalSprite.src = 'img/portal9.png';
+    this._portalSprite.src = 'img/portal6.png';
     this._npcSprites = new Array(NPC_DEFS.length).fill(null);  // must exist before any onload fires
     NPC_DEFS.forEach((def, i) => {
       const img = new Image();
@@ -79,7 +79,8 @@ class Game {
     this._npcHitColor  = null;  // mapColor of the hitting NPC
     this._teleportFlash = 0;
     this._flickerUntil  = 0;
-    this._beacons      = [];
+    this._portalPairs      = [];   // [{ a:{cx,cy,animFrame,animT}, b:{...}|null }, ...]
+    this._portalStandStart = null; // { pairIndex, portal:'a'|'b', startedAt }
     this._fogCanvas    = null;
     this._hasTouch     = navigator.maxTouchPoints > 0;
     this._touchDir     = null;
@@ -248,7 +249,7 @@ class Game {
 
   _triggerSpell(idx) {
     if      (idx === 3) this._activateWallSpell();
-    else if (idx === 5) this._activateLightSpell();
+    else if (idx === 5) this._activateTeleportSpell();
     else if (idx === 7) this._activateReturnSpell();
     else if (idx === 8 || idx === 9) return;   // not yet implemented
     else                this._activateSpell(idx);
@@ -467,36 +468,156 @@ class Game {
     ctx.restore();
   }
 
-  // ── Leuchtfeuer (Spell 6) — persistent beacon ───────────
+  // ── Teleport (Spell 6) — portal pairs ───────────────────
 
-  _activateLightSpell() {
+  _activateTeleportSpell() {
     const spell = this._spells[5];
-    if (!spell || spell.count <= 0) return;
-    const { cx, cy } = { cx: this.player._cx, cy: this.player._cy };
-    if (this._beacons.some(b => Math.abs(b.cx - cx) < 4 && Math.abs(b.cy - cy) < 4)) return;
-    spell.count--;
-    spell.activeUntil = performance.now() + 350;  // brief flash in spell bar
-    this._beacons.push({ cx, cy, animFrame: 0, animT: performance.now() });
+    if (!spell) return;
+
+    const pendingIdx = this._portalPairs.findIndex(p => p.b === null);
+
+    if (pendingIdx !== -1) {
+      // Complete the pair: place B at current position, teleport back to A instantly
+      const pair = this._portalPairs[pendingIdx];
+      pair.b = { cx: this.player._cx, cy: this.player._cy, animFrame: 0, animT: performance.now() };
+      this.player._cx     = pair.a.cx;
+      this.player._cy     = pair.a.cy;
+      this.player._facing = 'N';
+      this._teleportFlash = performance.now();
+    } else {
+      // Start new pair — costs 1 charge
+      if (spell.count <= 0) return;
+      spell.count--;
+      spell.activeUntil = performance.now() + 350;
+
+      const aCx = this.player._cx;
+      const aCy = this.player._cy;
+
+      const dest = this._randomTeleportCell();
+      if (dest) {
+        const { cell } = this.maze;
+        this.player._cx     = (dest.col + 0.5) * cell;
+        this.player._cy     = (dest.row + 0.5) * cell;
+        this.player._facing = 'N';
+        this._teleportFlash = performance.now();
+      }
+
+      this._portalPairs.push({ a: { cx: aCx, cy: aCy, animFrame: 0, animT: performance.now() }, b: null });
+    }
   }
 
-  _drawBeacons(ctx) {
-    if (!this._beacons.length) return;
+  _randomTeleportCell() {
+    const { cols, rows, cell } = this.maze;
+    const mid    = Math.floor(cols / 2);
+    const px     = this.player._cx;
+    const py     = this.player._cy;
+    const minD   = cell * 5;
+
+    const candidates = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (r === rows - 1 && c === mid) continue;  // entrance
+        if (r === 0        && c === mid) continue;  // exit
+        const dx = (c + 0.5) * cell - px;
+        const dy = (r + 0.5) * cell - py;
+        if (Math.sqrt(dx * dx + dy * dy) >= minD) candidates.push({ row: r, col: c });
+      }
+    }
+    // Fallback if maze too small
+    if (!candidates.length) {
+      for (let r = 0; r < rows; r++)
+        for (let c = 0; c < cols; c++)
+          if (!(r === rows - 1 && c === mid) && !(r === 0 && c === mid))
+            candidates.push({ row: r, col: c });
+    }
+    if (!candidates.length) return null;
+    return candidates[Math.floor(Math.random() * candidates.length)];
+  }
+
+  _checkPortalTeleport() {
+    const { cell } = this.maze;
+    const px       = this.player._cx;
+    const py       = this.player._cy;
+    const CONTACT  = cell * 0.5;
+    const STAND_MS = 3000;
+    const now      = performance.now();
+
+    let standingOn = null;
+    for (let pi = 0; pi < this._portalPairs.length; pi++) {
+      const pair = this._portalPairs[pi];
+      if (!pair.b) continue;
+      for (const key of ['a', 'b']) {
+        const portal = pair[key];
+        const dx = portal.cx - px, dy = portal.cy - py;
+        if (Math.sqrt(dx * dx + dy * dy) < CONTACT) { standingOn = { pi, key }; break; }
+      }
+      if (standingOn) break;
+    }
+
+    if (standingOn) {
+      const s = this._portalStandStart;
+      if (!s || s.pi !== standingOn.pi || s.key !== standingOn.key) {
+        this._portalStandStart = { ...standingOn, startedAt: now };
+      } else if (now - s.startedAt >= STAND_MS) {
+        const pair = this._portalPairs[standingOn.pi];
+        const dest = standingOn.key === 'a' ? pair.b : pair.a;
+        this.player._cx     = dest.cx;
+        this.player._cy     = dest.cy;
+        this.player._facing = 'N';
+        this._teleportFlash = now;
+        this._portalStandStart = null;
+      }
+    } else {
+      this._portalStandStart = null;
+    }
+  }
+
+  _drawPortals(ctx) {
+    if (!this._portalPairs.length) return;
     const img = this._portalSprite;
     if (!img || !img.complete || !img.naturalWidth) return;
-    const FRAMES    = 7;
-    const FRAME_MS  = 120;
-    const fw        = Math.floor(img.naturalWidth / FRAMES);
-    const fh        = img.naturalHeight;
-    const size      = Math.max(16, this.maze.cell * 0.85);
-    const now       = performance.now();
+    const FRAMES   = 7;
+    const FRAME_MS = 120;
+    const fw       = Math.floor(img.naturalWidth / FRAMES);
+    const fh       = img.naturalHeight;
+    const size     = Math.max(16, this.maze.cell * 0.6375);
+    const now      = performance.now();
 
-    for (const b of this._beacons) {
-      if (now - b.animT > FRAME_MS) {
-        b.animFrame = (b.animFrame + 1) % FRAMES;
-        b.animT     = now;
+    const drawOne = (portal, pulsing) => {
+      if (now - portal.animT > FRAME_MS) {
+        portal.animFrame = (portal.animFrame + 1) % FRAMES;
+        portal.animT     = now;
       }
-      ctx.drawImage(img, b.animFrame * fw, 0, fw, fh,
-                    b.cx - size / 2, b.cy - size / 2, size, size);
+      ctx.save();
+      if (pulsing) ctx.globalAlpha = 0.55 + 0.45 * Math.sin(now / 280);
+      ctx.drawImage(img, portal.animFrame * fw, 0, fw, fh,
+                    portal.cx - size / 2, portal.cy - size / 2, size, size);
+      ctx.restore();
+    };
+
+    for (const pair of this._portalPairs) {
+      drawOne(pair.a, pair.b === null);
+      if (pair.b) drawOne(pair.b, false);
+    }
+
+    // Progress arc while player stands on a complete portal
+    if (this._portalStandStart) {
+      const pair = this._portalPairs[this._portalStandStart.pi];
+      if (pair?.b) {
+        const portal   = pair[this._portalStandStart.key];
+        const progress = Math.min(1, (now - this._portalStandStart.startedAt) / 3000);
+        const r        = size * 0.72;
+        ctx.save();
+        ctx.strokeStyle = '#ffab40';
+        ctx.lineWidth   = Math.max(2, size * 0.08);
+        ctx.lineCap     = 'round';
+        ctx.shadowColor = '#ffab40';
+        ctx.shadowBlur  = 10;
+        ctx.beginPath();
+        ctx.arc(portal.cx, portal.cy, r, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
   }
 
@@ -942,6 +1063,9 @@ class Game {
     } else {
       this._spellBarEl.style.boxShadow = '';
     }
+    const hasPendingPortal = this._portalPairs.some(p => p.b === null);
+    this._spellSlotEls[5]?.classList.toggle('portal-pending', hasPendingPortal);
+
     for (let i = 0; i < 10; i++) {
       const slot  = this._spellSlotEls[i];
       const spell = this._spells[i];
@@ -1000,7 +1124,8 @@ class Game {
       if (spell) spell.activeUntil = 0;
     }
     this._openedWall        = null;
-    this._beacons           = [];
+    this._portalPairs       = [];
+    this._portalStandStart  = null;
     this._fogCanvas         = null;
     this._pendingRespawns   = [];
     this._flickerUntil      = 0;
@@ -1071,6 +1196,7 @@ class Game {
         this._updateNpcs();
         this._checkItemPickup();
         this._checkOpenedWall();
+        this._checkPortalTeleport();
         this._tickRespawns();
       }
     }
@@ -1113,7 +1239,7 @@ class Game {
       ctx.translate(-px, -py);
     }
     this.maze.draw(ctx);
-    this._drawBeacons(ctx);
+    this._drawPortals(ctx);
     this._drawOpenedWall(ctx);
     this._drawItems(ctx);
     this._drawNpcs(ctx);
@@ -1258,6 +1384,26 @@ class Game {
       ctx.fill();
     }
     ctx.globalAlpha = 1;
+
+    // Portal-Dots
+    for (const pair of this._portalPairs) {
+      for (const portal of [pair.a, pair.b]) {
+        if (!portal) continue;
+        ctx.globalAlpha = pair.b === null
+          ? 0.5 + 0.5 * Math.sin(now / 280)
+          : 1;
+        ctx.fillStyle   = '#ffab40';
+        ctx.shadowColor = '#ffab40';
+        ctx.shadowBlur  = 5;
+        ctx.beginPath();
+        ctx.arc(ox + (portal.cx / mazeCell) * cs,
+                oy + (portal.cy / mazeCell) * cs,
+                Math.max(1.5, cs * 0.65), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur  = 0;
 
     // NPC-Dots
     for (const npc of this._npcs) {
@@ -1414,16 +1560,15 @@ class Game {
 
     punchLight(cx, cy, fog, fade);
 
-    if (this._beacons.length > 0) {
-      const px  = this.player._cx;
-      const py  = this.player._cy;
-      const vcx = vw / 2;
-      const vcy = vh / 2;
-      const br  = Math.max(40, fog * 0.75);
-      const bf  = Math.min(fade, 55);
-      fc.globalAlpha = 0.5;   // 50% illumination — fog partially remains
-      for (const b of this._beacons) {
-        punchLight(vcx + (b.cx - px) * zoom, vcy + (b.cy - py) * zoom, br * zoom, bf * zoom);
+    const allPortals = this._portalPairs.flatMap(p => p.b ? [p.a, p.b] : [p.a]);
+    if (allPortals.length > 0) {
+      const ppx = this.player._cx;
+      const ppy = this.player._cy;
+      const br  = Math.max(30, fog * 0.5);
+      const bf  = Math.min(fade, 40);
+      fc.globalAlpha = 0.25;
+      for (const portal of allPortals) {
+        punchLight(cx + (portal.cx - ppx) * zoom, cy + (portal.cy - ppy) * zoom, br * zoom, bf * zoom);
       }
       fc.globalAlpha = 1;
     }

@@ -1,6 +1,6 @@
 # Maze Of Mages – Projektdokumentation
 
-**Stand:** 2026-04-12 (aktualisiert, Session 4)
+**Stand:** 2026-04-12 (aktualisiert, Session 5)
 **Pfad:** `/home/admin/Labyrinth/` — Git-Repo, Entwicklung und Live-Version (Apache zeigt direkt hierher)
 **Erreichbar unter:** `http://localhost:4000` — Apache-VirtualHost, startet automatisch mit dem System.
 **Online (GitHub Pages):** `https://JanDrescher.github.io/Labyrinth/` — wird automatisch aktualisiert bei jedem Push auf `main`.
@@ -157,7 +157,7 @@ Frame-Wechsel alle 150 ms bei Bewegung, Frame 0 im Stand. Gezeichnet in Screengr
 | 2    | 3     | Sprung      | 5 s   | 2        | 8       | `#ff7043` | Kamera zoomt organisch raus (sin-Kurve), überspringt Feinde; Spieler immun gegen NPCs |
 | 3    | 4     | Pforte      | 5 s   | 3        | 9       | `#a1887f` | Eine Wand in Blickrichtung öffnen; NPCs können die Pforte nicht nutzen |
 | 4    | 5     | Geist       | 6 s   | 4        | 9       | `#ba68c8` | Spieler kann interne Wände durchqueren (Außenwände blockieren weiterhin); Spieler immun gegen NPCs |
-| 5    | 6     | Leuchtfeuer | —     | 5        | 6       | `#ffab40` | Platziert dauerhaftes Portal; beleuchtet Umgebung zu 50% |
+| 5    | 6     | Teleport    | —     | 5        | 6       | `#ffab40` | Erstes Auslösen: Portal A + Sofort-Teleport zu zufälligem Punkt (1 Ladung). Zweites Auslösen: Portal B + Sofort-Rückkehr zu A (kostenlos). Danach: 3 Sek. auf Portal stehen → Teleport zum anderen. Gegner können Portale nicht nutzen. Pending-Portal blinkt im Slot. |
 | 6    | 7     | Orakel      | 4 s   | 6        | 9       | `#fff176` | Fog komplett entfernen |
 | 7    | 8     | Pfadmitte   | —     | 7        | 10      | `#ffd54f` | Teleport zur Mitte des kürzesten Lösungspfades |
 | 8    | 9     | Waffe       | —     | 8        | 8       | `#e53935` | (Effekt folgt) |
@@ -233,13 +233,19 @@ Offscreen-Canvas-Ansatz mit `destination-out` für mehrere Lichtquellen:
 
 `fogMult = 1 − orakelAlpha` → Orakel-Spell blendet Fog aus.
 
-### Beacon-System (Leuchtfeuer)
+### Teleport-System (Spell 6)
 
-- `this._beacons = [{ cx, cy, animFrame, animT }, ...]` — Weltkoordinaten + Animationszustand
+- `this._portalPairs = [{ a: {cx,cy,animFrame,animT}, b: {...}|null }, ...]` — Paare aus je 2 Portalen
+- `this._portalStandStart = { pi, key:'a'|'b', startedAt }|null` — Stand-Timer für Portal-Nutzung
 - Reset bei `_startNew()`
-- Lichtradius: `max(40, fog × 0.75)`, Fade: `min(fade, 55)`
-- **Fog-Ausleuchtung:** 50% (`fc.globalAlpha = 0.5` beim `destination-out`-Punch) — Nebel bleibt halb sichtbar
-- **Visuell:** animiertes Portal-Sprite (`img/portal9.png`, 7 Frames, 120 ms/Frame, Größe `cell × 0.85`)
+- **Aktivierung:** 1. Auslösung (1 Ladung) → Portal A an Spielerposition + Sofort-Teleport zu zufälliger Zelle. 2. Auslösung (kostenlos) → Portal B an aktueller Position + Sofort-Rückkehr zu Portal A. 3. Auslösung → neues Paar (kostet 1 Ladung).
+- **Nutzung:** 3 Sekunden auf vollständigem Portal stehen → Teleport zum Partner. Nur Drüberlaufen = nichts.
+- **Fortschrittsanzeige:** goldener Bogen um das Portal, füllt sich über 3 Sek. (world space)
+- **Pending-Anzeige:** Spell-Slot 6 pulsiert orange (`portal-pending-pulse`, 0,8-Sek.-Zyklus) solange Portal A wartet
+- **Gegner:** können Portale nicht auslösen
+- **Fog-Ausleuchtung:** 25% (`fc.globalAlpha = 0.25`) — Portale leicht durch Nebel sichtbar
+- **Visuell:** animiertes Portal-Sprite (`img/portal9.png`, 7 Frames, 120 ms/Frame, Größe `cell × 0.6375`); pending Portal A pulsiert in Deckkraft
+- **Mini-Map:** orangefarbene Dots; pending Portal A blinkt
 
 ### NPC-System
 

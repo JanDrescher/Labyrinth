@@ -299,6 +299,18 @@ button:active { filter: brightness(.9); }
 }
 
 
+/* ── Teleport spell — pending second portal ─────────── */
+
+@keyframes portal-pending-pulse {
+  0%,100% { border-color: rgba(255,171,64,0.55); box-shadow: 0 0  6px rgba(255,171,64,0.30); }
+  50%     { border-color: rgba(255,171,64,1.00); box-shadow: 0 0 14px rgba(255,171,64,0.85); }
+}
+
+.spell-slot.portal-pending {
+  border: 1.5px solid rgba(255,171,64,0.55);
+  animation: portal-pending-pulse 0.8s ease-in-out infinite;
+}
+
 /* ── NPC chase border ────────────────────────────────── */
 
 @keyframes chase-pulse {
