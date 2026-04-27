@@ -1302,8 +1302,8 @@ class Game {
   _drawMiniMap(ctx, solutionAlpha = 0) {
     const { cols, rows, cell: mazeCell, walls } = this.maze;
 
-    const CS     = 8;              // minimap px pro Maze-Zelle — fix, unabhängig von Maze-Größe
-    const HALF   = 12;             // Zellen vom Spieler bis zum Rand → 25×25 Sichtfenster
+    const CS     = this._hasTouch ? 5 : 8;   // minimap px pro Maze-Zelle — fix, unabhängig von Maze-Größe
+    const HALF   = this._hasTouch ? 8 : 12;  // Zellen vom Spieler bis zum Rand → 25×25 Sichtfenster
     const N      = HALF * 2 + 1;  // 25
     const GAP    = 1;              // 1-px Wandlücke zwischen Zellen
     const MARGIN = 2;              // Zellen Puffer zum Rand bevor Viewport nachrutscht
