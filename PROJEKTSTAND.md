@@ -1,6 +1,6 @@
 # Maze Of Mages – Projektdokumentation
 
-**Stand:** 2026-04-12 (aktualisiert, Session 5)
+**Stand:** 2026-04-28 (aktualisiert, Session 6)
 **Pfad:** `/home/admin/Labyrinth/` — Git-Repo, Entwicklung und Live-Version (Apache zeigt direkt hierher)
 **Erreichbar unter:** `http://localhost:4000` — Apache-VirtualHost, startet automatisch mit dem System.
 **Online (GitHub Pages):** `https://JanDrescher.github.io/Labyrinth/` — wird automatisch aktualisiert bei jedem Push auf `main`.
@@ -70,7 +70,7 @@ Struktur der Seite (von oben nach unten):
 | `inp-cols`  | Spalten            | 5   | 80  | 21      | Maze neu generieren (on `change`)   |
 | `inp-rows`  | Zeilen             | 5   | 80  | 21      | Maze neu generieren (on `change`)   |
 | `inp-cell`  | Gangbreite (px)    | 4   | 80  | 80      | Maze neu generieren (on `change`)   |
-| `inp-fog`   | Sichtweite (px)    | 15  | 400 | 120     | Nur Lichtkegel-Radius, kein Rebuild |
+| `inp-fog`   | Sichtweite (px)    | 15  | 400 | 100     | Nur Lichtkegel-Radius, kein Rebuild |
 | `inp-fade`  | Überblendung (px)  | 0   | 200 | 150     | Nur Fade-Breite, kein Rebuild       |
 
 Admin-UI ein-/ausblenden: Tastensequenz **q → w → e → r → t** (Toggle).
@@ -275,8 +275,22 @@ Im Chase-Modus: 2× Geschwindigkeit, BFS-Pfadfindung zur Spielerposition (`_npcB
 
 #### Kollision
 - Nur aktiv wenn `mode === 'chase'`; Kontaktdistanz `< cell * 0.5`
-- **Normal:** Spieler flackert 600 ms (alpha-Toggle alle 70 ms), NPC erhält 10 Sek. Sperrfrist (`cooldownUntil`), `_npcHitUntil`/`_npcHitColor` gesetzt → farbiger Rahmen um Spell-Leiste
-- **Immun (Sprung oder Geist aktiv):** NPC bricht Chase ab (zurück zu wander), kein Flicker, keine Sperrfrist
+- **Normal:** Spieler flackert 600 ms (alpha-Toggle alle 70 ms), NPC erhält 10 Sek. Sperrfrist (`cooldownUntil`), NPC-spezifischer Effekt wird ausgelöst (siehe unten)
+- **Immun (Sprung oder Geist aktiv):** NPC bricht Chase ab (zurück zu wander), kein Flicker, keine Sperrfrist, kein Effekt
+
+#### NPC-Effekte bei Treffer
+
+Jeder NPC-Typ löst bei Kollision einen 15-Sek.-Effekt aus. Effekte können sich überlappen.
+
+| NPC | Effekt-Variable | Effekt |
+|-----|----------------|--------|
+| NPC1 (Cyan-Orb) | `_glitchUntil` | **Glitch:** alle 300–800 ms wird der Spieler per BFS 1–3 Zellen versetzt (wandkonform); Cyan-Aura um Spieler |
+| NPC2 (Gold-Stern) | `_confuseUntil` | **Konfusion:** Steuerung gespiegelt (N↔S, E↔W), gilt für Tastatur und Touch; Gelbe Aura |
+| NPC3 (Grüner Geist) | `_slowUntil` | **Slow:** `player._speed` halbiert (3→1.5), Sichtbereich halbiert (`fog * 0.5` in `_drawFog`), halbtransparentes grünes Overlay über Canvas; Grüne Aura |
+
+**Glitch-BFS:** `_glitchBfsCells(maxSteps)` — BFS vom Spieler aus über `maze.walls`, liefert alle Zellen in 1–`maxSteps` Schritten. `_tickGlitch()` prüft jeden Frame ob `_glitchNextAt` erreicht ist, wählt zufällige Zielzelle, setzt Spieler hin.
+
+**Auren:** `shadowColor` + pulsierendes `shadowBlur` (10–66 px, ~630 ms-Zyklus) beim Spieler-Draw. Priorität: Glitch > Konfusion > Slow.
 
 #### Pforte-Interaktion
 NPCs können die vom Spieler geöffnete Pforte nicht nutzen. `_isNpcWall(row, col, dir)` behandelt die Pforte als undurchdringliche Wand — wirkt auf Wandern, LOS-Check und BFS.
@@ -284,7 +298,7 @@ NPCs können die vom Spieler geöffnete Pforte nicht nutzen. `_isNpcWall(row, co
 #### Spieler-Feedback
 - **Flicker:** `_flickerUntil` — Spieler-Alpha wechselt 70-ms-Takt für 600 ms
 - **Spell-Leiste chase-Rahmen:** CSS-Klasse `.chased` mit rotem 1-px-Pulsrahmen (1,4-Sek.-Zyklus), solange mind. ein NPC verfolgt
-- **Spell-Leiste Treffer-Rahmen:** `_npcHitUntil` + `_npcHitColor` — 1-px box-shadow in NPC-Farbe, pulsierend (500-ms-Zyklus), 10 Sek., immer nur ein Effekt gleichzeitig
+- **Spell-Leiste Treffer-Rahmen:** direkt aus `_glitchUntil`/`_confuseUntil`/`_slowUntil` abgeleitet — zeigt Farbe des Effekts mit längster Restzeit, pulsierend (500-ms-Zyklus); endet exakt mit dem Effekt
 
 #### Hintergrundentfernung
 `_removeBackground(img, bgTol)` — Pixel mit max. Kanaldifferenz < `bgTol` werden transparent gemacht. Gibt einen Canvas zurück, der als Bildquelle für `drawImage` genutzt wird.
@@ -294,8 +308,8 @@ NPCs können die vom Spieler geöffnete Pforte nicht nutzen. `_isNpcWall(row, co
 Wird immer in der **linken oberen Ecke** des Canvas gezeichnet (screen space).
 
 **Lokales Sichtfenster** — zeigt nie das gesamte Labyrinth, sondern immer einen festen Bereich um den Spieler:
-- `CS = 8 px` pro Zelle — fix, unabhängig von der Maze-Größe → gleichbleibende Lesbarkeit auf allen Leveln (Zellen 7×7 px sichtbar, 1 px Wandlücke)
-- `HALF = 12` → 25×25 Zellen Sichtfenster, max. 200×200 px; Startlevel (21×21) 168×168 px
+- `CS = 8 px` pro Zelle (Desktop) / `5 px` (Mobil) — fix, unabhängig von der Maze-Größe → gleichbleibende Lesbarkeit auf allen Leveln
+- `HALF = 12` (Desktop) / `8` (Mobil) → 25×25 bzw. 17×17 Zellen Sichtfenster; auf Mobil ca. 2/3 der Desktop-Größe
 - **Lazy Camera:** Viewport bleibt stehen solange der Spieler im Innenbereich ist; rutscht nach wenn der Spieler bis auf 2 Zellen (`MARGIN`) an den Rand kommt (`_mmViewCol`, `_mmViewRow`); reset bei `_startNew()`
 - **Startposition:** Spieler unten-mitte, wie Hauptansicht (`_mmViewRow = pRow − (N−1)`)
 - **Clipping:** Viewport wird auf Maze-Grenzen geclippt → kein dunkler Rand außerhalb des Labyrinths; Hintergrundrechteck passt sich der tatsächlichen Größe an
@@ -336,11 +350,12 @@ Erkennung: `navigator.maxTouchPoints > 0` → `this._hasTouch`.
 10. ctx.restore
 11. screen-space player draw (unabhängig vom Zoom)
 12. _drawFog(ctx, fogMult)
-13. Rückkehr-Flash
-14. _drawMiniMap(ctx)        ← oben links, screen space
-15. _drawDiscovery(ctx)      ← Erstfund-Overlay
-16. _drawTouchControls(ctx)  ← nur auf Touch-Geräten
-17. _updateSpellBar()
+13. NPC3-Slow: grünes Overlay (wenn aktiv)
+14. Rückkehr-Flash
+15. _drawMiniMap(ctx)        ← oben links, screen space
+16. _drawDiscovery(ctx)      ← Erstfund-Overlay
+17. _drawTouchControls(ctx)  ← nur auf Touch-Geräten
+18. _updateSpellBar()
 ```
 
 ### Spell-Leiste (HTML, über Canvas)
