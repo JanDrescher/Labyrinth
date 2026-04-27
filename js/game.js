@@ -75,9 +75,11 @@ class Game {
     this._npcs = [];
     this._openedWall        = null;
     this._revealedDeadCells = new Set();
-    this._npcHitUntil  = 0;      // effect end timestamp
-    this._npcHitColor  = null;  // mapColor of the hitting NPC
     this._teleportFlash = 0;
+    this._glitchUntil  = 0;     // NPC1-Glitch-Effekt Ende
+    this._glitchNextAt = 0;     // nächster Glitch-Teleport
+    this._confuseUntil = 0;     // NPC2-Konfusions-Effekt Ende
+    this._slowUntil    = 0;     // NPC3-Verlangsamungs-Effekt Ende
     this._flickerUntil  = 0;
     this._portalPairs      = [];   // [{ a:{cx,cy,animFrame,animT}, b:{...}|null }, ...]
     this._portalStandStart = null; // { pairIndex, portal:'a'|'b', startedAt }
@@ -735,6 +737,44 @@ class Game {
     }
   }
 
+  // BFS vom Spieler aus, liefert alle Zellen in 1–maxSteps Schritten (wandkonform)
+  _glitchBfsCells(maxSteps) {
+    const { cols, rows, cell } = this.maze;
+    const pr = Math.floor(this.player._cy / cell);
+    const pc = Math.floor(this.player._cx / cell);
+    const key    = (r, c) => r * cols + c;
+    const dist   = new Map([[key(pr, pc), 0]]);
+    const queue  = [[pr, pc, 0]];
+    const result = [];
+    while (queue.length) {
+      const [r, c, d] = queue.shift();
+      if (d > 0) result.push({ row: r, col: c });
+      if (d >= maxSteps) continue;
+      for (const [dir, [dr, dc]] of Object.entries(NPC_DIR_DELTA)) {
+        if (this.maze.walls[r][c][dir]) continue;
+        const nr = r + dr, nc = c + dc;
+        if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+        const k = key(nr, nc);
+        if (dist.has(k)) continue;
+        dist.set(k, d + 1);
+        queue.push([nr, nc, d + 1]);
+      }
+    }
+    return result;
+  }
+
+  _tickGlitch() {
+    const now = performance.now();
+    if (now >= this._glitchUntil || now < this._glitchNextAt) return;
+    const cells = this._glitchBfsCells(3);
+    if (cells.length === 0) return;
+    const dest = cells[Math.floor(Math.random() * cells.length)];
+    const cell = this.maze.cell;
+    this.player._cx = (dest.col + 0.5) * cell;
+    this.player._cy = (dest.row + 0.5) * cell;
+    this._glitchNextAt = now + 300 + Math.random() * 500;
+  }
+
   _updateNpcs() {
     const { cell, cols, rows } = this.maze;
     const now = performance.now();
@@ -784,10 +824,16 @@ class Game {
           if (playerImmune) {
             // Sprung / Geist: NPC breaks off silently, no penalty for player
           } else {
-            npc.cooldownUntil = now + 10000;
+            npc.cooldownUntil  = now + 10000;
             this._flickerUntil = now + 600;
-            this._npcHitUntil  = now + 10000;
-            this._npcHitColor  = NPC_DEFS[npc.spriteIndex].mapColor;
+            if (npc.spriteIndex === 0) {
+              this._glitchUntil  = now + 15000;
+              this._glitchNextAt = now + 300 + Math.random() * 500;
+            } else if (npc.spriteIndex === 1) {
+              this._confuseUntil = now + 15000;
+            } else if (npc.spriteIndex === 2) {
+              this._slowUntil = now + 15000;
+            }
           }
         }
       }
@@ -1050,10 +1096,16 @@ class Game {
     const chased = this._npcs.some(n => n.mode === 'chase');
     this._spellBarEl.classList.toggle('chased', chased);
 
-    // NPC hit effect — single pulsing border in the hitting NPC's color
-    if (now < this._npcHitUntil && this._npcHitColor) {
-      const pulse = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(now / 500));
-      const col   = this._npcHitColor;
+    // NPC hit effect — border duration directly coupled to the active effect
+    const npcEffects = [
+      { until: this._glitchUntil,  color: NPC_DEFS[0].mapColor },
+      { until: this._confuseUntil, color: NPC_DEFS[1].mapColor },
+      { until: this._slowUntil,    color: NPC_DEFS[2].mapColor },
+    ].filter(e => now < e.until);
+    if (npcEffects.length > 0) {
+      const active = npcEffects.reduce((a, b) => a.until > b.until ? a : b);
+      const pulse  = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(now / 500));
+      const col    = active.color;
       const r = parseInt(col.slice(1, 3), 16);
       const g = parseInt(col.slice(3, 5), 16);
       const b = parseInt(col.slice(5, 7), 16);
@@ -1130,8 +1182,10 @@ class Game {
     this._pendingRespawns   = [];
     this._flickerUntil      = 0;
     this._revealedDeadCells = new Set();
-    this._npcHitUntil  = 0;
-    this._npcHitColor  = null;
+    this._glitchUntil  = 0;
+    this._glitchNextAt = 0;
+    this._confuseUntil = 0;
+    this._slowUntil    = 0;
     this._mmViewCol    = null;   // Minimap-Viewport, lazy initialisiert beim ersten Draw
     this._mmViewRow    = null;
 
@@ -1194,8 +1248,15 @@ class Game {
       if (!this._discovery) {
         const ghostSpell = this._spells[4];
         this.player.phasing = !!(ghostSpell && ghostSpell.activeUntil > performance.now());
-        this.player.update(this._heldDirs);
+        this.player._speed = performance.now() < this._slowUntil ? 1.5 : 3;
+        let activeDirs = this._heldDirs;
+        if (performance.now() < this._confuseUntil) {
+          const FLIP = { N: 'S', S: 'N', E: 'W', W: 'E' };
+          activeDirs = new Set([...this._heldDirs].map(d => FLIP[d] ?? d));
+        }
+        this.player.update(activeDirs);
         this._updateNpcs();
+        this._tickGlitch();
         this._checkItemPickup();
         this._checkOpenedWall();
         this._checkPortalTeleport();
@@ -1269,12 +1330,35 @@ class Game {
       ctx.shadowColor = '#90caf9';
       ctx.shadowBlur  = 24;
     }
+    if (now < this._glitchUntil) {
+      const pulse = Math.sin(now / 100);
+      ctx.shadowColor = '#4fc3f7';
+      ctx.shadowBlur  = 38 + 28 * pulse;
+    } else if (now < this._confuseUntil) {
+      const pulse = Math.sin(now / 100);
+      ctx.shadowColor = '#ffd740';
+      ctx.shadowBlur  = 38 + 28 * pulse;
+    } else if (now < this._slowUntil) {
+      const pulse = Math.sin(now / 100);
+      ctx.shadowColor = '#69f0ae';
+      ctx.shadowBlur  = 38 + 28 * pulse;
+    }
     this.player.draw(ctx);
     ctx.restore();
 
     // Orakel: fog fades to 0 when active, returns over last 1 s
     const orakelAlpha = this._getSpellAlpha(6, 1);
     this._drawFog(ctx, vcx, psy, 1 - orakelAlpha, zoom);
+
+    // NPC3-Slow: grünes Overlay über Map
+    if (now < this._slowUntil) {
+      const pulse = 0.5 + 0.5 * Math.sin(now / 250);
+      ctx.save();
+      ctx.globalAlpha = 0.08 + 0.10 * pulse;
+      ctx.fillStyle   = '#69f0ae';
+      ctx.fillRect(0, 0, vw, vh);
+      ctx.restore();
+    }
 
     // Rückkehr flash
     if (this._teleportFlash > 0) {
@@ -1565,7 +1649,8 @@ class Game {
 
   _drawFog(ctx, cx, cy, fogMult = 1, zoom = 1) {
     if (fogMult <= 0) return;
-    const { fog, fade } = this._settings();
+    let { fog, fade } = this._settings();
+    if (performance.now() < this._slowUntil) fog = Math.round(fog * 0.5);
     const vw = this.canvas.width;
     const vh = this.canvas.height;
 
