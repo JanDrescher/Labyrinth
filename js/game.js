@@ -20,7 +20,7 @@ const SPELL_DEFS = [
   { name: 'Pforte',      duration: 5,  initialCount: 0, itemColor: '#a1887f', itemDiv:  9, minLevel: 3, description: 'öffnet eine Wand in Blickrichtung für 5 Sekunden, undurchlässig für Gegner' },
   { name: 'Geist',       duration: 6,  initialCount: 0, itemColor: '#ba68c8', itemDiv:  9, minLevel: 4, description: 'du kannst für 6 Sekunden durch Wände und Gegner gehen' },
   { name: 'Teleport',    duration: 0,  initialCount: 0, itemColor: '#ffab40', itemDiv:  6, minLevel: 5, description: 'Ein zufälliger Teleport, den Gegner nicht nutzen können. Zweiter Teleport führt zurück' },
-  { name: 'Orakel',      duration: 4,  initialCount: 0, itemColor: '#fff176', itemDiv:  9, minLevel: 6, description: 'entfernt den Nebel für 4 Sekunden vollständig' },
+  { name: 'Orakel',      duration: 20, initialCount: 0, itemColor: '#fff176', itemDiv:  9, minLevel: 6, description: 'entfernt den Nebel für 20 Sekunden vollständig' },
   { name: 'Pfadmitte', duration: 0, initialCount: 0, itemColor: '#ffd54f', itemDiv: 10, minLevel: 7, description: 'teleportiert dich zur Mitte des kürzesten Lösungspfades' },
   { name: 'Waffe',    duration: 0, initialCount: 0, itemColor: '#e53935', itemDiv:  8, minLevel: 8, description: 'kommt bald…' },
   { name: 'Schild',   duration: 0, initialCount: 0, itemColor: '#42a5f5', itemDiv: 10, minLevel: 9, description: 'kommt bald…' },

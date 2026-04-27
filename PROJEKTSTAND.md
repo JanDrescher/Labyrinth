@@ -158,7 +158,7 @@ Frame-Wechsel alle 150 ms bei Bewegung, Frame 0 im Stand. Gezeichnet in Screengr
 | 3    | 4     | Pforte      | 5 s   | 3        | 9       | `#a1887f` | Eine Wand in Blickrichtung öffnen; NPCs können die Pforte nicht nutzen |
 | 4    | 5     | Geist       | 6 s   | 4        | 9       | `#ba68c8` | Spieler kann interne Wände durchqueren (Außenwände blockieren weiterhin); Spieler immun gegen NPCs |
 | 5    | 6     | Teleport    | —     | 5        | 6       | `#ffab40` | Erstes Auslösen: Portal A + Sofort-Teleport zu zufälligem Punkt (1 Ladung). Zweites Auslösen: Portal B + Sofort-Rückkehr zu A (kostenlos). Danach: 3 Sek. auf Portal stehen → Teleport zum anderen. Gegner können Portale nicht nutzen. Pending-Portal blinkt im Slot. |
-| 6    | 7     | Orakel      | 4 s   | 6        | 9       | `#fff176` | Fog komplett entfernen |
+| 6    | 7     | Orakel      | 20 s  | 6        | 9       | `#fff176` | Fog komplett entfernen |
 | 7    | 8     | Pfadmitte   | —     | 7        | 10      | `#ffd54f` | Teleport zur Mitte des kürzesten Lösungspfades |
 | 8    | 9     | Waffe       | —     | 8        | 8       | `#e53935` | (Effekt folgt) |
 | 9    | 0     | Schild      | —     | 9        | 10      | `#42a5f5` | (Effekt folgt) |
